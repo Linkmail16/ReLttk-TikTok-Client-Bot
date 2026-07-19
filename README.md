@@ -127,14 +127,26 @@ async def on_message(bot, msg):
 
 ### Bot methods
 
-| Method | |
-|---|---|
-| `await bot.send_message(text, msg=msg)` | Send a message |
-| `await bot.send_reaction(emoji=..., msg=msg)` | React |
-| `await bot.remove_reaction(emoji=..., msg=msg)` | Remove reaction |
-| `await bot.delete_message(msg=msg)` | Delete a message |
-| `await bot.send_video(conv_id, item_id)` | Share a video |
-| `await bot.get_user(user_id)` | Get user profile |
+```python
+# send a text message
+await bot.send_message(text="hello!", msg=msg)
+
+# react to a message
+await bot.send_reaction(emoji="🔥", msg=msg)
+
+# remove a reaction
+await bot.remove_reaction(emoji="🔥", msg=msg)
+
+# delete a message
+await bot.delete_message(msg=msg)
+
+# share a video (conv_id from msg, item_id is the TikTok video ID)
+await bot.send_video(msg["conv_id"], "7123456789")
+
+# get a user's profile
+user = await bot.get_user(msg["sender_id"])
+print(user["unique_id"], user["nick_name"])
+```
 
 ---
 
