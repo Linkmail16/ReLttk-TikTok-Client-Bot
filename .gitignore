@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.pyo
+sesion/
+.uid_cache.json
+.vscode/
