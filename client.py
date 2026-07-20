@@ -840,16 +840,18 @@ class LttkClient:
                         *startup_tasks,
                     ]
                     try:
-                        await asyncio.gather(*tasks)
-                    except _BotRestart:
-                        for t in tasks:
+                        done, pending = await asyncio.wait(
+                            tasks, return_when=asyncio.FIRST_COMPLETED
+                        )
+                        for t in pending:
                             t.cancel()
+                        for t in done:
+                            t.result()
+                    except _BotRestart:
                         _log.info("lttk", "reiniciando...")
                         await self.run()
                         return
                     except _BotStop:
-                        for t in tasks:
-                            t.cancel()
                         _log.info("lttk", "detenido.")
                         return
             except _BotStop:
