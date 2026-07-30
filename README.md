@@ -10,6 +10,35 @@ Python bot for TikTok DMs. Connects to TikTok's internal WebSocket, reads incomi
 This started as a personal project and I decided to share it. It's early stage - expect rough edges, and expect improvements over time.
 
 ---
+# Changelog
+
+## [Unreleased]
+
+### Added
+- `client.py`: Message database (SQLite) — persists received messages locally, max 1000 entries
+  - `_init_msg_db()`, `_store_msg()`, `get_message()`, `get_messages()`
+- `client.py`: Conversation history API
+  - `fetch_history()`, `fetch_history_raw()`, `_parse_history_response()`, `_parse_history_msg()`
+- `client.py`: `_proto_to_dict()` — converts raw protobuf bytes to dict for inspection
+- `client.py`: `get_conversations()`, `get_groups()`, `get_private_chats()` — list and filter conversations
+- `client.py`: `download(msg)` — downloads stickers, videos and voice messages
+- `core/api.py`: `_fetch_inbox()`, `_parse_inbox()`, `get_conversations()` — inbox fetch with full conversation metadata (name, is_group, unread, member_count, avatar)
+- `core/api.py`: `get_conversation_history()` — paginated history fetch with cursor support
+- `core/api.py`: `_varint()`, `_pb_varint()`, `_pb_bytes()`, `_pb_str()` — protobuf encoding helpers
+- `plugins/stickerdl.py`: `/dl` command to download quoted stickers, saves to `stickers/`
+- `main.py`: `cookies <path>` argument — import cookies from JSON file
+- `main.py`: `browser <name>` argument — import cookies from browser (Chrome, Firefox, etc.)
+- `browsercookies.py`: helper to extract TikTok cookies from local browser storage
+
+### Changed
+- `core/api.py`: Rewrote `get_group_names()` — was broken (wrong payload + wrong parser), now delegates to `_fetch_inbox()` + `_parse_inbox()`
+- `client.py`: `_dispatch()` now calls `_store_msg()` to persist messages as they arrive
+- `client.py`: `get_group_name()` — no longer stays stuck on loaded=True if the result was empty; retries on next message
+- `client.py`: `send_message()` now logs sent messages
+- `client.py`: `_parse()` — now also extracts `sticker_url`, `quoted_sticker_url`, `quoted_sticker_id`
+- `plugins/videodl.py`: Added group chat support — retrieves quoted video from message cache
+
+
 
 ## Features
 
@@ -17,6 +46,10 @@ This started as a personal project and I decided to share it. It's early stage -
 - 1-on-1 and group conversations
 - Text, videos, photos, music, stickers, voice notes, stories, live streams and more
 - Reactions and message deletions
+- Conversation history fetch with pagination
+- Local message cache (SQLite)
+- Download stickers, videos, and voice notes
+- List conversations, filter groups or private chats
 - Auto re-login with QR when session expires
 - Plugin system with hot-reload - just edit the file, no restart needed
 - QR login, no password needed
@@ -26,12 +59,13 @@ This started as a personal project and I decided to share it. It's early stage -
 ## Structure
 
 ```
-bot/
+lttk/
 ├── main.py
 ├── client.py
 ├── config.py
 ├── log.py
 ├── qrlogin.py
+├── browsercookies.py
 ├── sesion/
 │   └── username.json
 ├── core/
@@ -43,7 +77,8 @@ bot/
     ├── info.py
     ├── react.py
     ├── menu.py
-    └── videodl.py
+    ├── videodl.py
+    └── stickerdl.py
 ```
 
 ---
@@ -67,6 +102,23 @@ python main.py
 
 First run opens a QR code - scan it with TikTok and the session gets saved to `sesion/<username>.json`. After that, just run the same command and it picks up the session automatically. If it expires it'll ask for QR again.
 
+### Import cookies from a file
+
+```bash
+python main.py cookies cookies.json
+```
+
+Accepts a JSON array (exported from a browser extension) or a plain `{"name": "value"}` object.
+
+### Import cookies from your browser
+
+```bash
+python main.py browser chrome
+python main.py browser firefox
+```
+
+Reads TikTok cookies directly from your local browser profile. No export needed.
+
 ### Console commands
 
 | Command | What it does |
@@ -85,8 +137,7 @@ First run opens a QR code - scan it with TikTok and the session gets saved to `s
 | `/info` | Shows sender's username and user ID |
 | `/react [emoji]` | Reacts to the message |
 | `/menu` | Shows available commands |
-
-Videos and photos shared in DMs get downloaded and re-hosted automatically.
+| `/dl` | Download a quoted sticker (saves to `stickers/`) |
 
 ---
 
@@ -123,7 +174,11 @@ async def on_message(bot, msg):
 | `msg["awe_type"]` | Content type (1=text, 800=video, 1813=voice...) |
 | `msg["is_group"]` | True if group chat |
 | `msg["video_id"]` | Video ID (awe_type 800/810) |
+| `msg["sticker_url"]` | Sticker URL (awe_type 1805) |
+| `msg["voice_id"]` | Voice note ID (awe_type 1813) |
 | `msg["quoted_text"]` | Quoted message text |
+| `msg["quoted_awe_type"]` | Quoted message content type |
+| `msg["proto"]` | Raw protobuf fields as dict |
 
 ### Bot methods
 
@@ -146,6 +201,46 @@ await bot.send_video(msg["conv_id"], "7123456789")
 # get a user's profile
 user = await bot.get_user(msg["sender_id"])
 print(user["unique_id"], user["nick_name"])
+
+# fetch conversation history (returns list of msg dicts)
+msgs = await bot.fetch_history(msg["conv_id"], count=20)
+
+# get a cached message by ID
+cached = bot.get_message(msg["msg_id"])
+
+# get recent cached messages from a conversation
+recent = bot.get_messages(msg["conv_id"], limit=50)
+
+# download a sticker, video or voice note
+result = await bot.download(msg)
+if result:
+    data, filename = result
+
+# list all conversations
+convs = await bot.get_conversations()
+
+# only groups
+groups = await bot.get_groups()
+
+# only private chats
+privates = await bot.get_private_chats()
+
+# get a TikTok video's detail
+detail = await bot.get_item("7123456789")
+
+# get a music track's detail
+track = await bot.get_music("7123456789")
+
+# inspect the raw protobuf fields of a received message
+import json
+print(json.dumps(msg["proto"], indent=2, default=str))
+
+# fetch raw history response bytes (useful for debugging the protobuf)
+raw = await bot.fetch_history_raw(msg["conv_id"], count=20)
+
+# parse any protobuf blob to a dict
+parsed = bot._proto_to_dict(raw)
+print(json.dumps(parsed, indent=2, default=str))
 ```
 
 ---
