@@ -2,3 +2,4 @@ websockets
 lz4
 qrcode
 stealth-requests
+pycryptodome
