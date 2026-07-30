@@ -49,7 +49,14 @@ def _upload(data: bytes, filename: str) -> str:
 
 
 async def on_message(bot, msg):
-    if msg["awe_type"] not in (800, 810) or not msg["video_id"]:
+    if msg["is_group"]:
+        if msg["text"].strip().lower() != "/dl":
+            return
+        quoted = bot.get_message(str(msg.get("quoted_msg_id", "")))
+        if not quoted or quoted.get("awe_type") not in (800, 810) or not quoted.get("video_id"):
+            return
+        msg = quoted
+    elif msg["awe_type"] not in (800, 810) or not msg["video_id"]:
         return
 
     detail = await bot.get_item(msg["video_id"])

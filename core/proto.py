@@ -15,7 +15,6 @@ CMD_DELETE_FRAME     = 10021
 _MSG_TYPE_QUOTE = 7524542718409605381
 _MSG_TYPE_PLAIN = 7524577932753895688
 
-                                                  
 REACTIONS = {
     "❤️":  7643714214541166097,
     "😂":  7643714214541166098,
@@ -61,13 +60,11 @@ def _build_video_share_body(conv_id: str, short_id: int, item_detail: dict,
     uid       = str(author.get("id", ""))
     sec_uid   = author.get("secUid", "")
 
-                                    
     cover_thumb_url = ""
     avatar_thumb = author.get("avatarThumb", "")
     video_cover = video.get("video", {}).get("cover", "")
     thumb_url = video_cover or avatar_thumb or ""
 
-                 
     cover_url_str = video.get("video", {}).get("originCover", video_cover)
     cover_w = video.get("video", {}).get("width", 720)
     cover_h = video.get("video", {}).get("height", 1280)

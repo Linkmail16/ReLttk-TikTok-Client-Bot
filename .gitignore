@@ -4,3 +4,5 @@ __pycache__/
 sesion/
 .uid_cache.json
 .vscode/
+messages.db
+stickers/

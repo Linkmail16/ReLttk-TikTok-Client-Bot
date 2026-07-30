@@ -13,7 +13,7 @@ import websockets
 
 from . import config
 from . import log as _log
-from .core import build_ws_packet, build_reaction_packet, build_delete_packet, build_video_share_packet, get_user_profiles, get_own_user_id, get_item_detail, get_music_detail, get_group_names
+from .core import build_ws_packet, build_reaction_packet, build_delete_packet, build_video_share_packet, get_user_profiles, get_own_user_id, get_item_detail, get_music_detail, get_group_names, get_conversation_history, get_conversations_api
 
 _USER_CACHE_TTL = 60           
 
@@ -44,8 +44,9 @@ class LttkClient:
         self._group_names: dict[str, str] = {}
         self._group_names_loaded = False
         self._active_session: str | None = None
+        self._init_msg_db()
 
-                                                                                
+
 
     def _plugins_dir(self) -> str:
         return os.path.join(os.path.dirname(__file__), "plugins")
@@ -77,7 +78,191 @@ class LttkClient:
                 del self._plugin_mtimes[name]
                 _log.plugin("lttk", "eliminado", name)
 
-                                                                                
+    def _init_msg_db(self):
+        import sqlite3
+        db_path = os.path.join(os.path.dirname(__file__), "messages.db")
+        self._msg_db = sqlite3.connect(db_path, check_same_thread=False)
+        self._msg_db.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                msg_id TEXT PRIMARY KEY,
+                conv_id TEXT,
+                sender_id TEXT,
+                awe_type INTEGER,
+                ts INTEGER,
+                data TEXT
+            )
+        """)
+        self._msg_db.execute("CREATE INDEX IF NOT EXISTS idx_conv ON messages(conv_id, ts)")
+        self._msg_db.commit()
+
+    def _store_msg(self, msg: dict):
+        import json as _json
+        msg_id = str(msg.get("msg_id", ""))
+        if not msg_id:
+            return
+        ts = msg.get("proto", {}).get("4") or msg.get("proto", {}).get("10", 0)
+        self._msg_db.execute(
+            "INSERT OR REPLACE INTO messages(msg_id, conv_id, sender_id, awe_type, ts, data) VALUES (?,?,?,?,?,?)",
+            (msg_id, msg.get("conv_id", ""), msg.get("sender_id", ""), msg.get("awe_type", 0), ts,
+             _json.dumps(msg, default=str))
+        )
+        self._msg_db.commit()
+        count = self._msg_db.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+        if count > 1000:
+            self._msg_db.execute("""
+                DELETE FROM messages WHERE msg_id IN (
+                    SELECT msg_id FROM messages ORDER BY ts ASC LIMIT ?
+                )
+            """, (count - 1000,))
+            self._msg_db.commit()
+
+    def get_message(self, msg_id: str) -> dict | None:
+        import json as _json
+        row = self._msg_db.execute(
+            "SELECT data FROM messages WHERE msg_id = ?", (str(msg_id),)
+        ).fetchone()
+        return _json.loads(row[0]) if row else None
+
+    def get_messages(self, conv_id: str, limit: int = 50) -> list[dict]:
+        import json as _json
+        rows = self._msg_db.execute(
+            "SELECT data FROM messages WHERE conv_id = ? ORDER BY ts DESC LIMIT ?",
+            (conv_id, limit)
+        ).fetchall()
+        return [_json.loads(r[0]) for r in rows]
+
+    async def fetch_history_raw(self, conv_id: str, count: int = 20, cursor: int = 0, conv_short_id: int = 0, conv_type: int = 10011) -> bytes:
+        return await asyncio.get_event_loop().run_in_executor(
+            None, get_conversation_history, conv_id, count, cursor, conv_short_id, conv_type
+        )
+
+    async def fetch_history(self, conv_id: str, count: int = 20, cursor: int = 0, conv_short_id: int = 0, conv_type: int = 10011) -> list[dict]:
+        raw = await asyncio.get_event_loop().run_in_executor(
+            None, get_conversation_history, conv_id, count, cursor, conv_short_id, conv_type
+        )
+        return self._parse_history_response(raw)
+
+    def _parse_history_response(self, raw: bytes) -> list[dict]:
+        def read_varint(buf, pos):
+            v = 0; sh = 0
+            while pos < len(buf):
+                b = buf[pos]; pos += 1
+                v |= (b & 0x7f) << sh; sh += 7
+                if not (b & 0x80): break
+            return v, pos
+
+        def skip(buf, pos, wtype):
+            if wtype == 0:
+                _, pos = read_varint(buf, pos)
+            elif wtype == 2:
+                ln, pos = read_varint(buf, pos); pos += ln
+            elif wtype == 1:
+                pos += 8
+            elif wtype == 5:
+                pos += 4
+            return pos
+
+        def parse_fields(buf):
+            fields = {}
+            pos = 0
+            while pos < len(buf):
+                if buf[pos] == 0: pos += 1; continue
+                try: tag, pos = read_varint(buf, pos)
+                except Exception: break
+                f = tag >> 3; wt = tag & 7
+                if wt == 2:
+                    try: ln, pos = read_varint(buf, pos)
+                    except Exception: break
+                    val = buf[pos:pos+ln]; pos += ln
+                    fields.setdefault(f, []).append(val)
+                elif wt == 0:
+                    try: v, pos = read_varint(buf, pos)
+                    except Exception: break
+                    fields.setdefault(f, []).append(v)
+                else:
+                    pos = skip(buf, pos, wt)
+            return fields
+
+        top = parse_fields(raw)
+        if 6 not in top:
+            return []
+        f6 = parse_fields(top[6][0])
+        if 301 not in f6:
+            return []
+        f301 = parse_fields(f6[301][0])
+
+        msgs = []
+        for msg_blob in f301.get(1, []):
+            msg = self._parse_history_msg(msg_blob)
+            if msg:
+                self._store_msg(msg)
+                msgs.append(msg)
+        return msgs
+
+    def _parse_history_msg(self, data: bytes) -> dict | None:
+        import json as _json
+        p = self._proto_to_dict(data)
+        conv_id = p.get("1", "")
+        if not conv_id or not isinstance(conv_id, str):
+            return None
+        awe_type = int(p.get("6", 0))
+        sender_id = str(p.get("7", ""))
+        msg_id = str(p.get("3", ""))
+        index_in_conv = p.get("4", 0)  # cursor for next page
+        conv_short_id = p.get("5", 0)
+
+        content_raw = p.get("8", "")
+        text = ""
+        video_id = ""; video_creator = ""
+        music_id = ""; music_title = ""
+        if isinstance(content_raw, str):
+            try:
+                obj = _json.loads(content_raw)
+                text = obj.get("text", "")
+                awe_type = obj.get("aweType", awe_type) or awe_type
+                if awe_type in (800, 810):
+                    video_id = str(obj.get("itemId", ""))
+                    video_creator = str(obj.get("uid", ""))
+                elif awe_type == 22:
+                    music_id = str(obj.get("music_id", ""))
+                    music_title = obj.get("title", "")
+            except Exception:
+                text = content_raw
+
+        voice_id = ""
+        voice_data = p.get("24", {})
+        if isinstance(voice_data, dict):
+            voice_id = voice_data.get("1", "")
+
+        is_group = not conv_id.startswith("0:1:")
+
+        return {
+            "conv_id":    conv_id,
+            "sender_id":  sender_id,
+            "is_group":   is_group,
+            "text":       text,
+            "sec_uid":    p.get("14", ""),
+            "msg_id":     msg_id,
+            "msg_type":   0,
+            "awe_type":   awe_type,
+            "video_id":   video_id,
+            "video_creator": video_creator,
+            "music_id":   music_id,
+            "music_title": music_title,
+            "sticker_id": "", "sticker_type": 0, "sticker_origin_video_id": "",
+            "sticker_creator_uid": "", "sticker_url": "",
+            "voice_id":   voice_id, "voice_duration": "",
+            "live_room_id": "", "live_owner_id": "", "live_owner_name": "",
+            "comment_text": "", "comment_video_id": "", "comment_author_name": "",
+            "profile_uid": "", "profile_sec_uid": "", "profile_name": "",
+            "story_item_id": "", "story_uid": "", "story_title": "",
+            "greeting_card_text": "",
+            "group_command": 0, "group_added": [], "group_removed": [],
+            "quoted_msg_id": 0, "quoted_uid": "", "quoted_sec_uid": "",
+            "quoted_awe_type": 0, "quoted_text": "", "quoted_video_id": "",
+            "quoted_video_uid": "", "quoted_sticker_id": "", "quoted_sticker_url": "",
+            "proto": p,
+        }
 
     async def get_group_name(self, conv_id: str) -> str:
         if not self._group_names_loaded:
@@ -86,7 +271,7 @@ class LttkClient:
                 self._group_names.update(names)
             except Exception as e:
                 _log.error("lttk", f"error obteniendo nombres de grupos: {e}")
-            self._group_names_loaded = True
+            self._group_names_loaded = bool(self._group_names)
         return self._group_names.get(conv_id, conv_id)
 
     async def get_user(self, user_id: str) -> dict | None:
@@ -122,7 +307,16 @@ class LttkClient:
             _log.error("lttk", f"error obteniendo audio {music_id}: {e}")
         return None
 
-                                                                                
+    async def get_conversations(self) -> list[dict]:
+        return await asyncio.get_event_loop().run_in_executor(None, get_conversations_api)
+
+    async def get_groups(self) -> list[dict]:
+        convs = await self.get_conversations()
+        return [c for c in convs if c["is_group"]]
+
+    async def get_private_chats(self) -> list[dict]:
+        convs = await self.get_conversations()
+        return [c for c in convs if not c["is_group"]]
 
     async def send_message(self, conv_id: str = "", text: str = "",
                            short_id: int = 1, quote: dict | None = None,
@@ -153,6 +347,7 @@ class LttkClient:
             is_group       = is_group,
         )
         await self.websocket.send(packet)
+        _log.info("send", f"[{conv_id}] {text!r}" if text else f"[{conv_id}] <non-text msg_type={msg_type}>")
         return msg_type
 
     async def send_video(self, conv_id: str, item_id: str, short_id: int = 1) -> int:
@@ -226,7 +421,81 @@ class LttkClient:
         )
         await self.websocket.send(packet)
 
-                                                                                
+    async def download(self, msg: dict) -> tuple[bytes, str] | None:
+        import urllib.request as _urlreq
+        awe = msg.get("awe_type", 0)
+
+        _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+
+        def _get(url, headers):
+            req = _urlreq.Request(url, headers=headers)
+            with _urlreq.urlopen(req, timeout=30) as r:
+                return r.read()
+
+        if awe == 1805:
+            url = msg.get("sticker_url") or msg.get("quoted_sticker_url", "")
+            if not url:
+                try:
+                    url = msg["proto"]["20"]["7"]["1"]["2"]
+                except (KeyError, TypeError):
+                    url = ""
+            if not url:
+                return None
+            try:
+                sid = next(
+                    e["2"] for e in msg["proto"]["20"]["7"]["200"]["1"]["2"]
+                    if isinstance(e, dict) and e.get("1") == "a:sticker_id"
+                )
+            except (KeyError, TypeError, StopIteration):
+                sid = msg.get("sticker_id") or msg.get("quoted_sticker_id") or msg.get("msg_id", "unknown")
+            data = await asyncio.get_event_loop().run_in_executor(None, _get, url, {
+                "User-Agent":              _UA,
+                "Referer":                 "https://www.tiktok.com/",
+                "Accept":                  "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                "sec-ch-ua":               '"Not;A=Brand";v="8", "Chromium";v="150", "Microsoft Edge";v="150"',
+                "sec-ch-ua-mobile":        "?0",
+                "sec-ch-ua-platform":      '"Windows"',
+                "Sec-Fetch-Site":          "cross-site",
+                "Sec-Fetch-Mode":          "no-cors",
+                "Sec-Fetch-Dest":          "image",
+            })
+            return data, f"{sid}.awebp"
+
+        if awe in (800, 810):
+            video_id = msg.get("video_id") or msg.get("quoted_video_id", "")
+            if not video_id:
+                return None
+            detail = await self.get_item(video_id)
+            if not detail:
+                return None
+            play_url = detail.get("itemInfo", {}).get("itemStruct", {}).get("video", {}).get("playAddr", "")
+            if not play_url:
+                return None
+            cookie = "; ".join(f"{k}={v}" for k, v in config.COOKIES.items())
+            data = await asyncio.get_event_loop().run_in_executor(None, _get, play_url, {
+                "User-Agent": _UA,
+                "Referer":    "https://www.tiktok.com/",
+                "Cookie":     cookie,
+            })
+            return data, f"{video_id}.mp4"
+
+        if awe == 1813:
+            proto = msg.get("proto", {})
+            voice_url = proto.get("24", {}).get("1", "") if isinstance(proto.get("24"), dict) else ""
+            if not voice_url:
+                return None
+            voice_id = msg.get("voice_id") or msg.get("msg_id", "unknown")
+            cookie = "; ".join(f"{k}={v}" for k, v in config.COOKIES.items())
+            data = await asyncio.get_event_loop().run_in_executor(None, _get, voice_url, {
+                "User-Agent": _UA,
+                "Referer":    "https://www.tiktok.com/",
+                "Cookie":     cookie,
+            })
+            return data, f"{voice_id}.mp3"
+
+        return None
+
+
 
     @staticmethod
     def _read_varint(data: bytes, i: int):
@@ -236,6 +505,67 @@ class LttkClient:
             v |= (b & 0x7f) << sh; sh += 7
             if not (b & 0x80): break
         return v, i
+
+    @staticmethod
+    def _proto_to_dict(data: bytes, depth: int = 0) -> dict:
+        if depth > 10:
+            return {}
+        result = {}
+        i = 0
+        while i < len(data):
+            if data[i] == 0:
+                i += 1
+                continue
+            try:
+                tag, i = LttkClient._read_varint(data, i)
+            except Exception:
+                break
+            field = tag >> 3
+            wtype = tag & 0x7
+            key = str(field)
+            if wtype == 0:
+                try:
+                    v, i = LttkClient._read_varint(data, i)
+                except Exception:
+                    break
+                if key in result:
+                    if not isinstance(result[key], list):
+                        result[key] = [result[key]]
+                    result[key].append(v)
+                else:
+                    result[key] = v
+            elif wtype == 2:
+                try:
+                    ln, i = LttkClient._read_varint(data, i)
+                except Exception:
+                    break
+                if i + ln > len(data):
+                    break
+                val = data[i:i + ln]
+                i += ln
+                try:
+                    text = val.decode("utf-8")
+                    printable = all(c >= " " or c in "\t\n\r" for c in text)
+                    if printable:
+                        parsed = text
+                    else:
+                        raise ValueError
+                except Exception:
+                    nested = LttkClient._proto_to_dict(val, depth + 1) if len(val) > 2 else {}
+                    parsed = nested if nested else val.hex()
+                if key in result:
+                    if not isinstance(result[key], list):
+                        result[key] = [result[key]]
+                    result[key].append(parsed)
+                else:
+                    result[key] = parsed
+            elif wtype == 5:
+                i += 4
+            elif wtype == 1:
+                i += 8
+            else:
+                break
+        return result
 
     @staticmethod
     def _parse_msgbody(data: bytes) -> dict:
@@ -260,7 +590,7 @@ class LttkClient:
                 if i + ln > len(data): break
                 val = data[i:i+ln]; i += ln
                 if field == 1:
-                    try: result["conv_id"] = val.decode("utf-8")
+                    try: result["conv_id"] = val.decode("utf-8", errors="replace")
                     except: pass
                 elif field == 8:
                     try:
@@ -293,8 +623,6 @@ class LttkClient:
                             result["profile_name"]     = obj.get("name", "")
                     except: pass
                 elif field == 18:
-                                                           
-                                                                                        
                     import json as _json
                     try:
                         j = 0
@@ -312,20 +640,22 @@ class LttkClient:
                                         ref = _json.loads(v2.decode("utf-8"))
                                         result["quoted_uid"]     = ref.get("refmsg_uid", "")
                                         result["quoted_sec_uid"] = ref.get("refmsg_sec_uid", "")
-                                        result["quoted_type"]    = ref.get("refmsg_type", 0)
+                                        result["quoted_awe_type"] = ref.get("refmsg_type", 0)
                                         inner = ref.get("refmsg_content", "")
                                         try:
                                             inner_obj = _json.loads(inner)
                                             result["quoted_text"]     = inner_obj.get("text", "")
-                                            result["quoted_awe_type"] = inner_obj.get("aweType", 0)
+                                            if inner_obj.get("aweType"):
+                                                result["quoted_awe_type"] = inner_obj.get("aweType", 0)
                                             result["quoted_video_id"] = str(inner_obj.get("itemId", ""))
                                             result["quoted_video_uid"]= str(inner_obj.get("uid", ""))
+                                            result["quoted_sticker_id"] = str(inner_obj.get("stickerId", ""))
                                         except: pass
                                     except: pass
                             else: break
                     except: pass
                 elif field == 14:
-                    try: result["sec_uid"] = val.decode("utf-8")
+                    try: result["sec_uid"] = val.decode("utf-8", errors="replace")
                     except: pass
             else:
                 break
@@ -336,23 +666,19 @@ class LttkClient:
         lz4_pos = data.find(b'__lz4')
         if lz4_pos == -1:
             return None
-                                                                                                   
-                                                                        
         i = lz4_pos + 5
-                                                                                          
         if i >= len(data):
             return None
-        i += 1                 
+        i += 1
         ln = 0; sh = 0
         while i < len(data):
             b = data[i]; i += 1
             ln |= (b & 0x7f) << sh; sh += 7
             if not (b & 0x80): break
-        i += ln                   
-                                                                               
+        i += ln
         if i >= len(data):
             return None
-        i += 1                 
+        i += 1
         comp_len = 0; sh = 0
         while i < len(data):
             b = data[i]; i += 1
@@ -376,13 +702,13 @@ class LttkClient:
         client_msg_id = ""
         m = re.search(rb'0:1:\d+:\d+', data)
         if m:
-            conv_id = m.group().decode()
+            conv_id = m.group().decode("utf-8", errors="replace")
         m = re.search(rb's:recall_uid\x12.([\d]+)', data)
         if m:
-            sender_id = m.group(1).decode()
+            sender_id = m.group(1).decode("utf-8", errors="replace")
         m = re.search(rb's:client_message_id\x12\x24([0-9a-f\-]{36})', data)
         if m:
-            client_msg_id = m.group(1).decode()
+            client_msg_id = m.group(1).decode("utf-8", errors="replace")
         if not conv_id:
             return None
         return {"conv_id": conv_id, "sender_id": sender_id, "client_msg_id": client_msg_id}
@@ -414,7 +740,7 @@ class LttkClient:
         if not conv_match:
             return None
         return {
-            "conv_id":     conv_match.group(0).decode(),
+            "conv_id":     conv_match.group(0).decode("utf-8", errors="replace"),
             "sender_id":   str(obj.get("UserId", "")),
             "emoji":       emoji_key[2:],
             "msg_type":    obj.get("ServerMessageId", 0),
@@ -424,7 +750,7 @@ class LttkClient:
     def _parse(self, data: bytes, decompressed: bytes | None = None) -> dict | None:
         def find_msgbody(raw, depth=0):
             if depth > 8:
-                return None
+                return None, None
             i = 0
             while i < len(raw):
                 if raw[i] == 0: i += 1; continue
@@ -441,22 +767,20 @@ class LttkClient:
                     if ln > 10:
                         candidate = self._parse_msgbody(val)
                         if candidate.get("conv_id") and (candidate.get("text") or candidate.get("awe_type")):
-                            return candidate
-                        result = find_msgbody(val, depth + 1)
+                            return candidate, val
+                        result, result_val = find_msgbody(val, depth + 1)
                         if result:
-                            return result
+                            return result, result_val
                 else:
                     break
-            return None
+            return None, None
 
-        msg = find_msgbody(data)
+        msg, msgbody_bytes = find_msgbody(data)
         if not msg and decompressed is not None:
-            msg = find_msgbody(decompressed)
+            msg, msgbody_bytes = find_msgbody(decompressed)
         if not msg or not msg.get("conv_id") or not (msg.get("text") or msg.get("awe_type")):
             return None
 
-                                                 
-                                                                                       
         f7_sender = msg.get("sender_id", "")
 
         conv_match = re.search(r'0:1:(\d+):(\d+)', msg.get("conv_id", ""))
@@ -465,33 +789,38 @@ class LttkClient:
             own = self._own_user_id
             msg["sender_id"] = id_b if id_a == own else id_a
 
-                                                                                 
         if f7_sender == self._own_user_id:
             return None
 
-                                                                   
         sticker_id = ""
         sticker_type = 0
         sticker_origin_video_id = ""
         sticker_creator_uid = ""
+        sticker_url = ""
         voice_id = ""
         voice_duration = ""
         raw_search = decompressed if decompressed else data
         if msg.get("awe_type") == 1805:
             m = re.search(rb'a:sticker_id\x12.([0-9]+)', raw_search)
             if m:
-                sticker_id = m.group(1).decode()
+                sticker_id = m.group(1).decode("utf-8", errors="replace")
             m = re.search(rb'a:sticker_type\x12.([0-9]+)', raw_search)
             if m:
-                sticker_type = int(m.group(1).decode())
+                sticker_type = int(m.group(1).decode("utf-8", errors="replace"))
             m = re.search(rb'a:origin_video_id\x12.([0-9]+)', raw_search)
             if m:
-                sticker_origin_video_id = m.group(1).decode()
+                sticker_origin_video_id = m.group(1).decode("utf-8", errors="replace")
             m = re.search(rb'a:sticker_creator_user_id\x12.([0-9]+)', raw_search)
             if m:
-                sticker_creator_uid = m.group(1).decode()
+                sticker_creator_uid = m.group(1).decode("utf-8", errors="replace")
+            urls = re.findall(rb'(https://[A-Za-z0-9\-._~/:@!$&\'()+,;=%?]+ibyteimg\.com[A-Za-z0-9\-._~/:@!$&\'()+,;=%?]+\.awebp[A-Za-z0-9\-._~/:@!$&\'()+,;=%?]*)', raw_search)
+            if urls:
+                sticker_url = urls[0].decode("utf-8", errors="replace")
+        if msg.get("quoted_awe_type") == 1805:
+            urls = re.findall(rb'(https://[A-Za-z0-9\-._~/:@!$&\'()+,;=%?]+ibyteimg\.com[A-Za-z0-9\-._~/:@!$&\'()+,;=%?]+\.awebp[A-Za-z0-9\-._~/:@!$&\'()+,;=%?]*)', raw_search)
+            if urls:
+                msg["quoted_sticker_url"] = urls[-1].decode("utf-8", errors="replace")
         elif msg.get("awe_type") == 1814:
-                                                                                          
             m = re.search(rb'\xa2\x01[\x80-\xff][\x00-\xff]\x7a[\x80-\xff][\x00-\xff]\x12.([\x0a])(.)([\x20-\x7e\xc0-\xff].{0,250})', raw_search)
             if m:
                 try:
@@ -502,12 +831,11 @@ class LttkClient:
         elif msg.get("awe_type") == 1813:
             m = re.search(rb'\x0a\x20([a-z0-9]{32})', raw_search)
             if m:
-                voice_id = m.group(1).decode()
+                voice_id = m.group(1).decode("utf-8", errors="replace")
             m = re.search(rb'\[mensaje de voz\] (\d+:\d+)', raw_search)
             if m:
-                voice_duration = m.group(1).decode()
+                voice_duration = m.group(1).decode("utf-8", errors="replace")
 
-                                                         
         story_item_id = ""
         story_uid = ""
         story_title = ""
@@ -525,7 +853,7 @@ class LttkClient:
                     except Exception:
                         pass
             if story_item_id:
-                msg["awe_type"] = 1025                                                  
+                msg["awe_type"] = 1025
 
         is_group = not msg.get("conv_id", "").startswith("0:1:")
         return {
@@ -545,6 +873,7 @@ class LttkClient:
             "sticker_type":            sticker_type,
             "sticker_origin_video_id": sticker_origin_video_id,
             "sticker_creator_uid":     sticker_creator_uid,
+            "sticker_url":             sticker_url,
             "voice_id":                voice_id,
             "voice_duration":          voice_duration,
             "live_room_id":            msg.get("live_room_id", ""),
@@ -570,9 +899,10 @@ class LttkClient:
             "quoted_text":             msg.get("quoted_text", ""),
             "quoted_video_id":         msg.get("quoted_video_id", ""),
             "quoted_video_uid":        msg.get("quoted_video_uid", ""),
+            "quoted_sticker_id":       msg.get("quoted_sticker_id", ""),
+            "quoted_sticker_url":      msg.get("quoted_sticker_url", ""),
+            "proto":                   self._proto_to_dict(msgbody_bytes) if msgbody_bytes else {},
         }
-
-                                                                                
 
     async def _watch_plugins(self):
         while True:
@@ -580,6 +910,7 @@ class LttkClient:
             self._load_plugins()
 
     async def _dispatch(self, msg: dict):
+        self._store_msg(msg)
         for name, plugin in list(self._plugins.items()):
             try:
                 if hasattr(plugin, "on_message"):

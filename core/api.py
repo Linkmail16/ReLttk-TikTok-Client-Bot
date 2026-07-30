@@ -129,84 +129,27 @@ def get_item_detail(item_id: str) -> dict:
         return json.loads(resp.read())
 
 
-def get_group_names() -> dict[str, str]:
-                                    
-                                                                        
-                                                           
-                                                       
-    def _pb_vi(field: int, v: int) -> bytes:
-        tag = (field << 3) | 0
-        out = bytearray()
-        tag_b = tag
-        while True:
-            b = tag_b & 0x7f
-            tag_b >>= 7
-            out.append(b | (0x80 if tag_b else 0))
-            if not tag_b: break
-        while True:
-            b = v & 0x7f; v >>= 7
-            out.append(b | (0x80 if v else 0))
-            if not v: break
-        return bytes(out)
+def _fetch_inbox() -> bytes:
+    _BV = "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 Edg/150.0.0.0"
+    _FULL_UA = f"Mozilla/5.0 {_BV}"
+    device_id = config.DEVICE_ID or "0"
+    ms_token  = config.MSG_SDK_MS_TOKEN or ""
+    verify_fp = config.COOKIES.get("s_v_web_id", "verify_ms75rg2f_ftn5TmOL_0JAu_4qoc_Aq2f_n2UmR5ESX7SX")
 
-    def _pb_str(field: int, s: str) -> bytes:
-        enc = s.encode("utf-8")
-        tag = (field << 3) | 2
-        out = bytearray()
-        t = tag
-        while True:
-            b = t & 0x7f; t >>= 7
-            out.append(b | (0x80 if t else 0))
-            if not t: break
-        n = len(enc)
-        while True:
-            b = n & 0x7f; n >>= 7
-            out.append(b | (0x80 if n else 0))
-            if not n: break
-        return bytes(out) + enc
-
-    def _pb_kv(key: str, val: str) -> bytes:
-        inner = _pb_str(1, key) + _pb_str(2, val)
-        return _pb_str(15, inner.decode("latin-1")) if False else (
-            (15 << 3 | 2).to_bytes(1, "big") + _encode_varint(len(inner)).to_bytes(1, "big") + inner
-        )
-
-    def _encode_varint(n: int) -> bytes:
-        out = bytearray()
-        while True:
-            b = n & 0x7f; n >>= 7
-            out.append(b | (0x80 if n else 0))
-            if not n: break
-        return bytes(out)
-
-    def _field(field: int, wire: int, payload: bytes) -> bytes:
-        tag = (field << 3) | wire
-        return _encode_varint(tag) + (payload if wire == 0 else _encode_varint(len(payload)) + payload)
-
-    def _vi(field: int, v: int) -> bytes:
-        return _field(field, 0, _encode_varint(v))
-
-    def _st(field: int, s: str) -> bytes:
-        b = s.encode("utf-8")
-        return _field(field, 2, b)
-
-    def _kv(key: str, val: str) -> bytes:
-        inner = _st(1, key) + _st(2, val)
-        return _field(15, 2, inner)
-
-    device_id = config.DEVICE_ID or "7643756217525126672"
-    own_id    = config.OWN_USER_ID or ""
+    def _kv(k, v):
+        return _pb_bytes(15, _pb_str(1, k) + _pb_str(2, v))
 
     body = (
-        _vi(1, 203) +
-        _vi(2, 10002) +
-        _st(3, "1.7.0") +
-        _st(4, "") +
-        _vi(5, 3) +
-        _vi(6, 1) +
-        _st(7, "e465244:feat/call-trace-plugin") +
-        _st(9, own_id) +
-        _st(11, "web") +
+        _pb_varint(1, 203) +
+        _pb_varint(2, 10002) +
+        _pb_str(3, "1.7.0") +
+        _pb_str(4, "") +
+        _pb_varint(5, 3) +
+        _pb_varint(6, 1) +
+        _pb_str(7, "3035f17:feat/call-trace-plugin") +
+        _pb_bytes(8, _pb_bytes(203, _pb_varint(1, 0))) +
+        _pb_str(9, device_id) +
+        _pb_str(11, "web") +
         _kv("aid", "1988") +
         _kv("app_name", "tiktok_web") +
         _kv("channel", "web") +
@@ -215,49 +158,49 @@ def get_group_names() -> dict[str, str]:
         _kv("region", "CO") +
         _kv("priority_region", "CO") +
         _kv("os", "windows") +
+        _kv("referer", "https://www.tiktok.com/messages") +
+        _kv("root_referer", "") +
         _kv("cookie_enabled", "true") +
         _kv("screen_width", "1920") +
         _kv("screen_height", "1080") +
-        _kv("browser_language", "es-US") +
+        _kv("browser_language", "es-419") +
         _kv("browser_platform", "Win32") +
         _kv("browser_name", "Mozilla") +
-        _kv("browser_version", "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36") +
+        _kv("browser_version", _BV) +
         _kv("browser_online", "true") +
+        _kv("verifyFp", verify_fp) +
         _kv("app_language", "es-419") +
         _kv("webcast_language", "es-419") +
         _kv("tz_name", "America/Bogota") +
         _kv("is_page_visible", "true") +
         _kv("focus_state", "true") +
         _kv("is_fullscreen", "false") +
-        _kv("history_len", "5") +
+        _kv("history_len", "2") +
         _kv("user_is_login", "true") +
         _kv("data_collection_enabled", "true") +
         _kv("from_appID", "1988") +
         _kv("locale", "es-419") +
-        _vi(18, 1)
+        _kv("user_agent", _FULL_UA) +
+        _kv("Web-Sdk-Ms-Token", ms_token) +
+        _pb_varint(18, 1)
     )
-
     req = urllib.request.Request(
         "https://im-api-sg.tiktok.com/v2/message/get_by_user_init",
-        data=body,
-        method="POST",
+        data=body, method="POST",
         headers={
-            "Host":             "im-api-sg.tiktok.com",
-            "Content-Type":     "application/x-protobuf",
-            "Accept":           "application/x-protobuf",
-            "Accept-Language":  "es-US,es;q=0.9",
-            "Origin":           "https://www.tiktok.com",
-            "Referer":          "https://www.tiktok.com/",
-            "User-Agent":       _UA,
-            "Cookie":           _cookie_header(),
+            "Content-Type": "application/x-protobuf",
+            "Accept":       "application/x-protobuf",
+            "Origin":       "https://www.tiktok.com",
+            "Referer":      "https://www.tiktok.com/",
+            "User-Agent":   _FULL_UA,
+            "Cookie":       _cookie_header(),
         },
     )
-
     with urllib.request.urlopen(req, timeout=15) as resp:
-        resp_body = resp.read()
+        return resp.read()
 
-                                                                       
-                                                                                 
+
+def _parse_inbox(resp_body: bytes) -> list[dict]:
     def _read_varint(buf, pos):
         r = 0; sh = 0
         while pos < len(buf):
@@ -266,76 +209,75 @@ def get_group_names() -> dict[str, str]:
             if not (b & 0x80): break
         return r, pos
 
-    def _parse_entries(buf):
-        results: dict[str, str] = {}
+    def _pf(buf):
+        fields = {}
         pos = 0
         while pos < len(buf):
-            try:
-                tv, pos = _read_varint(buf, pos)
-            except Exception:
-                break
-            fn = tv >> 3; wt = tv & 7
+            if buf[pos] == 0: pos += 1; continue
+            try: tag, pos = _read_varint(buf, pos)
+            except Exception: break
+            f = tag >> 3; wt = tag & 7
             if wt == 2:
-                ln, pos = _read_varint(buf, pos)
-                val = buf[pos:pos + ln]; pos += ln
-                if fn == 6:
-                                      
-                    p2 = 0
-                    while p2 < len(val):
-                        try: tv2, p2 = _read_varint(val, p2)
-                        except: break
-                        fn2 = tv2 >> 3; wt2 = tv2 & 7
-                        if wt2 == 2:
-                            ln2, p2 = _read_varint(val, p2)
-                            v2 = val[p2:p2 + ln2]; p2 += ln2
-                            if fn2 == 203:
-                                results.update(_parse_conv_entry(v2))
-                        elif wt2 == 0:
-                            _, p2 = _read_varint(val, p2)
-                        else:
-                            break
+                try: ln, pos = _read_varint(buf, pos)
+                except Exception: break
+                fields.setdefault(f, []).append(buf[pos:pos+ln]); pos += ln
             elif wt == 0:
-                _, pos = _read_varint(buf, pos)
-            elif wt == 1:
-                pos += 8
-            elif wt == 5:
-                pos += 4
-            else:
-                break
-        return results
+                try: v, pos = _read_varint(buf, pos)
+                except Exception: break
+                fields.setdefault(f, []).append(v)
+            elif wt == 1: pos += 8
+            elif wt == 5: pos += 4
+            else: break
+        return fields
 
-    def _parse_conv_entry(buf) -> dict:
-        import json as _json
-        conv_id = None; group_name = None
-        pos = 0
-        while pos < len(buf):
-            try: tv, pos = _read_varint(buf, pos)
-            except: break
-            fn = tv >> 3; wt = tv & 7
-            if wt == 2:
-                ln, pos = _read_varint(buf, pos)
-                val = buf[pos:pos + ln]; pos += ln
-                if fn == 1:
-                    try: conv_id = val.decode("utf-8")
-                    except: pass
-                elif fn == 8 and b"group_name" in val:
-                    try:
-                        obj = _json.loads(val.decode("utf-8"))
-                        group_name = obj.get("group_name", "")
-                    except: pass
-            elif wt == 0:
-                _, pos = _read_varint(buf, pos)
-            elif wt == 1:
-                pos += 8
-            elif wt == 5:
-                pos += 4
-            else:
-                break
-        if conv_id and group_name:
-            return {conv_id: group_name}
-        return {}
+    def _str(fields, key):
+        v = fields.get(key, [None])[0]
+        if isinstance(v, bytes):
+            try: return v.decode("utf-8")
+            except: return ""
+        return str(v) if v is not None else ""
 
-    return _parse_entries(resp_body)
+    convs = []
+    top = _pf(resp_body)
+    for f6_blob in top.get(6, []):
+        f6 = _pf(f6_blob)
+        for f203_blob in f6.get(203, []):
+            f203 = _pf(f203_blob)
+            for conv_blob in f203.get(2, []):
+                conv = _pf(conv_blob)
+                conv_id = _str(conv, 1)
+                if not conv_id:
+                    continue
+                conv_type = conv.get(3, [1])[0] if conv.get(3) else 1
+                is_group = (conv_type == 2)
+                member_count = conv.get(7, [0])[0]
+                unread = conv.get(11, [0])[0]
+                name = conv_id
+                avatar = ""
+                for f50_blob in conv.get(50, []):
+                    f50 = _pf(f50_blob)
+                    n = _str(f50, 5)
+                    if n: name = n
+                    a = _str(f50, 7)
+                    if a: avatar = a
+                convs.append({
+                    "conv_id":      conv_id,
+                    "name":         name,
+                    "is_group":     is_group,
+                    "unread":       unread,
+                    "member_count": member_count,
+                    "avatar":       avatar,
+                })
+    return convs
+
+
+def get_conversations() -> list[dict]:
+    return _parse_inbox(_fetch_inbox())
+
+
+def get_group_names() -> dict[str, str]:
+    convs = _parse_inbox(_fetch_inbox())
+    return {c["conv_id"]: c["name"] for c in convs if c["is_group"] and c["name"] != c["conv_id"]}
 
 
 def get_music_detail(music_id: str) -> dict:
@@ -380,6 +322,102 @@ def get_music_detail(music_id: str) -> dict:
     with urllib.request.urlopen(req, timeout=10) as resp:
         return json.loads(resp.read())
 
+
+def _varint(v: int) -> bytes:
+    out = []
+    while True:
+        b = v & 0x7F; v >>= 7
+        out.append(b | (0x80 if v else 0))
+        if not v: break
+    return bytes(out)
+
+def _pb_varint(field: int, v: int) -> bytes:
+    return _varint((field << 3) | 0) + _varint(v)
+
+def _pb_bytes(field: int, v: bytes) -> bytes:
+    return _varint((field << 3) | 2) + _varint(len(v)) + v
+
+def _pb_str(field: int, s: str) -> bytes:
+    return _pb_bytes(field, s.encode())
+
+def get_conversation_history(conv_id: str, count: int = 20, cursor: int = 0, conv_short_id: int = 0, conv_type: int = 10011) -> bytes:
+    _BV = "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 Edg/150.0.0.0"
+    _FULL_UA = f"Mozilla/5.0 {_BV}"
+    device_id  = config.DEVICE_ID or "0"
+    ms_token   = config.MSG_SDK_MS_TOKEN or ""
+    verify_fp  = config.COOKIES.get("s_v_web_id", "verify_ms75rg2f_ftn5TmOL_0JAu_4qoc_Aq2f_n2UmR5ESX7SX")
+
+    def _kv(k, v):
+        inner = _pb_str(1, k) + _pb_str(2, v)
+        return _pb_bytes(15, inner)
+
+    inner = (
+        _pb_str(1, conv_id) +
+        _pb_varint(2, 1) +
+        _pb_varint(3, conv_short_id) +
+        _pb_varint(4, 1) +
+        _pb_varint(5, cursor) +
+        _pb_varint(6, count)
+    )
+    payload = (
+        _pb_varint(1, 301) +
+        _pb_varint(2, conv_type) +
+        _pb_str(3, "1.7.0") +
+        _pb_str(4, "") +
+        _pb_varint(5, 3) +
+        _pb_varint(6, 0) +
+        _pb_str(7, "3035f17:feat/call-trace-plugin") +
+        _pb_bytes(8, _pb_bytes(301, inner)) +
+        _pb_str(9, device_id) +
+        _pb_str(11, "web") +
+        _kv("aid", "1988") +
+        _kv("app_name", "tiktok_web") +
+        _kv("channel", "web") +
+        _kv("device_platform", "web_pc") +
+        _kv("device_id", device_id) +
+        _kv("region", "CO") +
+        _kv("priority_region", "CO") +
+        _kv("os", "windows") +
+        _kv("referer", "https://www.tiktok.com/messages") +
+        _kv("root_referer", "") +
+        _kv("cookie_enabled", "true") +
+        _kv("screen_width", "1920") +
+        _kv("screen_height", "1080") +
+        _kv("browser_language", "es-419") +
+        _kv("browser_platform", "Win32") +
+        _kv("browser_name", "Mozilla") +
+        _kv("browser_version", _BV) +
+        _kv("browser_online", "true") +
+        _kv("verifyFp", verify_fp) +
+        _kv("app_language", "es-419") +
+        _kv("webcast_language", "es-419") +
+        _kv("tz_name", "America/Bogota") +
+        _kv("is_page_visible", "true") +
+        _kv("focus_state", "true") +
+        _kv("is_fullscreen", "false") +
+        _kv("history_len", "2") +
+        _kv("user_is_login", "true") +
+        _kv("data_collection_enabled", "true") +
+        _kv("from_appID", "1988") +
+        _kv("locale", "es-419") +
+        _kv("user_agent", _FULL_UA) +
+        _kv("Web-Sdk-Ms-Token", ms_token) +
+        _pb_varint(18, 1)
+    )
+    req = urllib.request.Request(
+        "https://im-api-sg.tiktok.com/v1/message/get_by_conversation",
+        data=payload, method="POST",
+        headers={
+            "User-Agent":   _FULL_UA,
+            "Content-Type": "application/x-protobuf",
+            "Accept":       "application/x-protobuf",
+            "Origin":       "https://www.tiktok.com",
+            "Referer":      "https://www.tiktok.com/",
+            "Cookie":       _cookie_header(),
+        }
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return resp.read()
 
 _VERIFY_FP    = "verify_mplnlgno_s07vIKFn_2ii8_43lR_800G_hibLVGVaQnut"
 _SHORTEN_LANG = "es-419"
