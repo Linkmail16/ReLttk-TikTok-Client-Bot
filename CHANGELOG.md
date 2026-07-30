@@ -19,6 +19,7 @@
 - `browsercookies.py`: helper to extract TikTok cookies from local browser storage
 
 ### Changed
+- `client.py`: Sticker log now shows type — `(animated)` for `sticker_type=9`, `(static)` for others
 - `core/api.py`: Rewrote `get_group_names()` — was broken (wrong payload + wrong parser), now delegates to `_fetch_inbox()` + `_parse_inbox()`
 - `client.py`: `_dispatch()` now calls `_store_msg()` to persist messages as they arrive
 - `client.py`: `get_group_name()` — no longer stays stuck on loaded=True if the result was empty; retries on next message

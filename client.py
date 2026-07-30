@@ -1018,7 +1018,8 @@ class LttkClient:
                                 creator_tag = f"@{creator['unique_id']}" if creator else f"@{msg['sticker_creator_uid']}"
                                 _log.msg(ts, name, group_tag.strip("[] "), f"[video sticker by {creator_tag}] https://www.tiktok.com/{creator_tag}/video/{msg['sticker_origin_video_id']}")
                             else:
-                                _log.msg(ts, name, group_tag.strip("[] "), f"[sticker {msg['sticker_id']}]")
+                                kind = "animated" if msg["sticker_type"] == 9 else "static"
+                                _log.msg(ts, name, group_tag.strip("[] "), f"[sticker {msg['sticker_id']} ({kind})]")
                         elif msg["awe_type"] in (800, 810):
                             kind = "photo" if msg["awe_type"] == 810 else "video"
                             creator = await self.get_user(msg["video_creator"]) if msg["video_creator"] else None
