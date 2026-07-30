@@ -42,7 +42,7 @@ This started as a personal project and I decided to share it. It's early stage -
 
 ## Features
 
-- Real-time DMs via WebSocket (`wss://im-ws-va.tiktok.com/ws/v2`)
+- Real-time DMs via WebSocket
 - 1-on-1 and group conversations
 - Text, videos, photos, music, stickers, voice notes, stories, live streams and more
 - Reactions and message deletions
