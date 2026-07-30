@@ -87,6 +87,7 @@ lttk/
 
 - Python 3.10+
 - A signing service running at the URL set in `core/signer_client.py`
+- `pycryptodome` — only needed if you use the `browser` cookie import feature
 
 ```bash
 pip install -r requirements.txt
