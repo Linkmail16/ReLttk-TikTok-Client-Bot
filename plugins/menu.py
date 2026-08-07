@@ -1,3 +1,12 @@
+import random
+
+_INVIS = ["​", "‌", "‍", "⁠", "﻿"]
+
+def _pad(text):
+    chars = random.choices(_INVIS, k=random.randint(1, 4))
+    pos = random.randint(0, len(text))
+    return text[:pos] + "".join(chars) + text[pos:]
+
 MENU_TEXT = (
     "commands:\n"
     "/ping — check if the bot is alive\n"
@@ -9,4 +18,4 @@ MENU_TEXT = (
 async def on_message(bot, msg):
     if msg["text"].strip().lower() != "/menu":
         return
-    await bot.send_message(text=MENU_TEXT, msg=msg)
+    await bot.send_message(text=_pad(MENU_TEXT), msg=msg)

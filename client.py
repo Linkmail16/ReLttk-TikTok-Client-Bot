@@ -962,6 +962,21 @@ class LttkClient:
             try:
                 raw = await self.websocket.recv()
                 if isinstance(raw, bytes):
+                    if b'sending_ban' in raw or b'"ban"' in raw:
+                        import json as _json
+                        try:
+                            j = raw.find(b'{"status_code"')
+                            if j != -1:
+                                for end in range(min(j + 2048, len(raw)), j + 20, -1):
+                                    try:
+                                        _json.loads(raw[j:end].decode("utf-8"))
+                                        break
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
+                        _log.error("lttk", "No se pudo enviar debido a la restriccion de envio")
+                        continue
                     decompressed = self._decompress_lz4_frame(raw)
                     rxn = self._parse_reaction(decompressed) if decompressed else None
                     if rxn and rxn["sender_id"] != self._own_user_id:
