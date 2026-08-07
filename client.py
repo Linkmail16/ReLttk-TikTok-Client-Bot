@@ -13,7 +13,7 @@ import websockets
 
 from . import config
 from . import log as _log
-from .core import build_ws_packet, build_reaction_packet, build_delete_packet, build_video_share_packet, get_user_profiles, get_own_user_id, get_item_detail, get_music_detail, get_group_names, get_conversation_history, get_conversations_api
+from .core import build_ws_packet, build_reaction_packet, build_delete_packet, build_video_share_packet, get_user_profiles, get_own_user_id, get_item_detail, get_music_detail, get_group_names, get_conversation_history, get_conversations_api, get_pending_strangers, accept_stranger
 
 _USER_CACHE_TTL = 60           
 
@@ -53,6 +53,7 @@ class LttkClient:
         self._user_cache: dict[str, dict] = {}
         self._group_names: dict[str, str] = {}
         self._group_names_loaded = False
+        self._accepted_strangers: set[str] = set()
         self._init_msg_db()
 
     def _apply_cookies(self):
@@ -221,7 +222,7 @@ class LttkClient:
         awe_type = int(p.get("6", 0))
         sender_id = str(p.get("7", ""))
         msg_id = str(p.get("3", ""))
-        index_in_conv = p.get("4", 0)  # cursor for next page
+        index_in_conv = p.get("4", 0)
         conv_short_id = p.get("5", 0)
 
         content_raw = p.get("8", "")
@@ -919,6 +920,29 @@ class LttkClient:
             "proto":                   self._proto_to_dict(msgbody_bytes) if msgbody_bytes else {},
         }
 
+    async def _stranger_loop(self):
+        while True:
+            try:
+                self._apply_cookies()
+                pending = await asyncio.get_event_loop().run_in_executor(None, get_pending_strangers)
+                for entry in pending:
+                    uid = entry["uid"]
+                    conv_id = entry["conv_id"]
+                    if uid == self._own_user_id or conv_id in self._accepted_strangers:
+                        continue
+                    try:
+                        ok = await asyncio.get_event_loop().run_in_executor(None, accept_stranger, conv_id, uid)
+                        if ok:
+                            self._accepted_strangers.add(conv_id)
+                            _log.ok("lttk", f"chat aceptado: {uid}")
+                        else:
+                            _log.warn("lttk", f"no se pudo aceptar chat de {uid}")
+                    except Exception as e:
+                        _log.warn("lttk", f"error aceptando chat de {uid}: {e}")
+            except Exception as e:
+                _log.error("lttk", f"error en stranger loop: {e}")
+            await asyncio.sleep(10)
+
     async def _watch_plugins(self):
         while True:
             await asyncio.sleep(1)
@@ -926,6 +950,15 @@ class LttkClient:
 
     async def _dispatch(self, msg: dict):
         self._store_msg(msg)
+        conv_id = msg.get("conv_id", "")
+        sender = msg.get("sender_id", "")
+        if conv_id and sender and sender != self._own_user_id and conv_id not in self._accepted_strangers:
+            try:
+                ok = await asyncio.get_event_loop().run_in_executor(None, accept_stranger, conv_id, sender)
+                if ok:
+                    self._accepted_strangers.add(conv_id)
+            except Exception:
+                pass
         for name, plugin in list(self._plugins.items()):
             try:
                 if hasattr(plugin, "on_message"):
@@ -1100,7 +1133,6 @@ class LttkClient:
         self._cookies = {}
 
     async def close_session(self):
-        """Called by manager to logout and delete this session's credentials."""
         await asyncio.get_event_loop().run_in_executor(None, self._logout_and_delete)
 
     async def _console(self):
@@ -1216,6 +1248,7 @@ class LttkClient:
                         asyncio.create_task(self._heartbeat()),
                         asyncio.create_task(self._receiver()),
                         asyncio.create_task(self._watch_plugins()),
+                        asyncio.create_task(self._stranger_loop()),
                         *([asyncio.create_task(self._console())] if not self._managed else []),
                         *startup_tasks,
                     ]

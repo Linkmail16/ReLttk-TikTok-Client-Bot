@@ -419,6 +419,182 @@ def get_conversation_history(conv_id: str, count: int = 20, cursor: int = 0, con
     with urllib.request.urlopen(req, timeout=15) as resp:
         return resp.read()
 
+def get_pending_strangers() -> list[dict]:
+    def _kv2(key, val):
+        inner = _pb_str(1, key) + _pb_str(2, val)
+        return _pb_bytes(15, inner)
+
+    device_id = config.DEVICE_ID or "7643756217525126672"
+    ms_token  = config.COOKIES.get("msToken", "")
+    verify_fp = config.VERIFY_FP or config.COOKIES.get("s_v_web_id", "")
+
+    body = (
+        _pb_varint(1, 203) +
+        _pb_varint(2, 10003) +
+        _pb_str(3, "1.7.0") +
+        _pb_str(4, "") +
+        _pb_varint(5, 3) +
+        _pb_varint(6, 3) +
+        _pb_str(7, "3035f17:feat/call-trace-plugin") +
+        _pb_bytes(8, _pb_bytes(203, _pb_varint(1, 0))) +
+        _pb_str(9, device_id) +
+        _pb_str(11, "web") +
+        _kv2("aid", "1988") +
+        _kv2("app_name", "tiktok_web") +
+        _kv2("channel", "web") +
+        _kv2("device_platform", "web_pc") +
+        _kv2("device_id", device_id) +
+        _kv2("region", "CO") +
+        _kv2("priority_region", "CO") +
+        _kv2("os", "windows") +
+        _kv2("referer", "https://www.tiktok.com/messages") +
+        _kv2("root_referer", "") +
+        _kv2("cookie_enabled", "true") +
+        _kv2("screen_width", "1920") +
+        _kv2("screen_height", "1080") +
+        _kv2("browser_language", "es-419") +
+        _kv2("browser_platform", "Win32") +
+        _kv2("browser_name", "Mozilla") +
+        _kv2("browser_version", "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0") +
+        _kv2("browser_online", "true") +
+        _kv2("verifyFp", verify_fp) +
+        _kv2("app_language", "es-419") +
+        _kv2("webcast_language", "es-419") +
+        _kv2("tz_name", "America/Bogota") +
+        _kv2("is_page_visible", "true") +
+        _kv2("focus_state", "true") +
+        _kv2("is_fullscreen", "false") +
+        _kv2("history_len", "2") +
+        _kv2("user_is_login", "true") +
+        _kv2("data_collection_enabled", "true") +
+        _kv2("from_appID", "1988") +
+        _kv2("locale", "es-419") +
+        _kv2("user_agent", f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0") +
+        _kv2("Web-Sdk-Ms-Token", ms_token) +
+        _pb_varint(18, 1)
+    )
+
+    req = urllib.request.Request(
+        "https://im-api-sg.tiktok.com/v2/message/get_by_user_init",
+        data=body, method="POST",
+        headers={
+            "Content-Type": "application/x-protobuf",
+            "Accept":       "application/x-protobuf",
+            "Origin":       "https://www.tiktok.com",
+            "Referer":      "https://www.tiktok.com/",
+            "User-Agent":   _UA,
+            "Cookie":       _cookie_header(),
+        },
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        resp_body = resp.read()
+
+    own_id = config.OWN_USER_ID or ""
+
+    def _rv(buf, pos):
+        r = 0; sh = 0
+        while pos < len(buf):
+            b = buf[pos]; pos += 1
+            r |= (b & 0x7f) << sh; sh += 7
+            if not (b & 0x80): break
+        return r, pos
+
+    def _iter_fields(buf):
+        pos = 0
+        while pos < len(buf):
+            try: tv, pos = _rv(buf, pos)
+            except: break
+            fn = tv >> 3; wt = tv & 7
+            if wt == 2:
+                ln, pos = _rv(buf, pos)
+                yield fn, buf[pos:pos+ln]; pos += ln
+            elif wt == 0: _, pos = _rv(buf, pos)
+            elif wt == 1: pos += 8
+            elif wt == 5: pos += 4
+            else: break
+
+    def _uid_from_conv(conv_id):
+        parts = conv_id.split(":")
+        if len(parts) != 4: return ""
+        a, b = parts[2], parts[3]
+        return b if a == own_id else a if b == own_id else ""
+
+    seen = set()
+    results = []
+    for fn, f6 in _iter_fields(resp_body):
+        if fn != 6: continue
+        for fn2, f203 in _iter_fields(f6):
+            if fn2 != 203: continue
+            for fn3, item in _iter_fields(f203):
+                if fn3 not in (1, 2): continue
+                for fn4, val in _iter_fields(item):
+                    if fn4 != 1: continue
+                    try: conv_id = val.decode("utf-8")
+                    except: break
+                    if conv_id in seen or not conv_id.startswith("0:1:"): break
+                    uid = _uid_from_conv(conv_id)
+                    if uid and uid != own_id:
+                        seen.add(conv_id)
+                        results.append({"conv_id": conv_id, "uid": uid})
+                    break
+    return results
+
+
+def accept_stranger(conv_id: str, to_user_id: str) -> bool:
+    csrf = config.COOKIES.get("tt_csrf_token", "")
+    verify_fp = config.VERIFY_FP or config.COOKIES.get("s_v_web_id", "")
+    params = urllib.parse.urlencode({
+        "aid": "1988",
+        "app_language": "es-419",
+        "app_name": "tiktok_web",
+        "browser_language": "es-419",
+        "browser_name": "Mozilla",
+        "browser_online": "true",
+        "browser_platform": "Win32",
+        "browser_version": "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+        "channel": "tiktok_web",
+        "cookie_enabled": "true",
+        "data_collection_enabled": "true",
+        "device_id": config.DEVICE_ID or "",
+        "device_platform": "web_pc",
+        "focus_state": "true",
+        "history_len": "2",
+        "is_fullscreen": "false",
+        "is_page_visible": "true",
+        "os": "windows",
+        "priority_region": "CO",
+        "referer": "https://www.tiktok.com/messages",
+        "region": "CO",
+        "screen_height": "1080",
+        "screen_width": "1920",
+        "tz_name": "America/Bogota",
+        "user_is_login": "true",
+        "verifyFp": verify_fp,
+        "webcast_language": "es-419",
+    })
+    url = f"https://www.tiktok.com/api/im/stranger/unlimit?{params}"
+    body = urllib.parse.urlencode({
+        "conversation_id": conv_id,
+        "to_user_id": to_user_id,
+    }).encode()
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "accept": "*/*",
+        "accept-language": "es-419,es;q=0.9",
+        "content-type": "application/x-www-form-urlencoded",
+        "origin": "https://www.tiktok.com",
+        "referer": "https://www.tiktok.com/messages",
+        "tt-csrf-token": csrf,
+        "user-agent": _UA,
+        "cookie": _cookie_header(),
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+        return data.get("status_code") == 0
+    except Exception:
+        return False
+
+
 _VERIFY_FP    = "verify_mplnlgno_s07vIKFn_2ii8_43lR_800G_hibLVGVaQnut"
 _SHORTEN_LANG = "es-419"
 
