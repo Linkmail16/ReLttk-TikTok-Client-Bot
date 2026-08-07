@@ -844,6 +844,19 @@ class LttkClient:
                     msg["greeting_card_text"] = m.group(3)[:msg_ln].decode("utf-8", errors="replace")
                 except Exception:
                     pass
+        elif msg.get("awe_type") == 1823:
+            m = re.search(rb'voip_call_log', raw_search)
+            if m:
+                if b'cancel' in raw_search or b'cancelada' in raw_search or b'cancelado' in raw_search:
+                    msg["text"] = "[llamada de voz cancelada]"
+                elif b'missed' in raw_search or b'perdida' in raw_search or b'perdido' in raw_search:
+                    msg["text"] = "[llamada de voz perdida]"
+                elif b'finaliz' in raw_search:
+                    m_dur = re.search(rb'\[llamada de voz\] (\d+:\d+)', raw_search)
+                    dur = m_dur.group(1).decode() if m_dur else ""
+                    msg["text"] = f"[llamada de voz] {dur}" if dur else "[llamada de voz finalizada]"
+                else:
+                    msg["text"] = "[llamada de voz]"
         elif msg.get("awe_type") == 1813:
             m = re.search(rb'\x0a\x20([a-z0-9]{32})', raw_search)
             if m:
@@ -1060,6 +1073,8 @@ class LttkClient:
                                 _log.msg(ts, name, group_tag.strip("[] "), f"[evento de grupo cmd={cmd}]")
                             else:
                                 _log.msg(ts, name, group_tag.strip("[] "), f"[evento de grupo cmd={cmd}]")
+                        elif msg["awe_type"] == 1823:
+                            _log.msg(ts, name, group_tag.strip("[] "), msg["text"] or "[llamada de voz]")
                         elif msg["awe_type"] == 1814:
                             card_text = f": \"{msg['greeting_card_text']}\"" if msg["greeting_card_text"] else ""
                             _log.msg(ts, name, group_tag.strip("[] "), f"[tarjeta de regalo{card_text}]")
