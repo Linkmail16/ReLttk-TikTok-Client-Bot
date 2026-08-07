@@ -1135,8 +1135,18 @@ class LttkClient:
         ssl_ctx.verify_mode = ssl.CERT_NONE
 
         try:
-            self._apply_cookies()
-            self._own_user_id = await asyncio.get_event_loop().run_in_executor(None, get_own_user_id)
+            for attempt in range(4):
+                try:
+                    self._apply_cookies()
+                    self._own_user_id = await asyncio.get_event_loop().run_in_executor(None, get_own_user_id)
+                    break
+                except Exception as e:
+                    if "Login expired" in str(e):
+                        raise
+                    if attempt < 3:
+                        await asyncio.sleep(3)
+                    else:
+                        raise
             config.OWN_USER_ID = self._own_user_id
             self._apply_cookies()
             profiles = await asyncio.get_event_loop().run_in_executor(None, get_user_profiles, [self._own_user_id])
