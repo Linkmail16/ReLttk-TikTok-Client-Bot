@@ -19,18 +19,21 @@ def _list_sessions():
 
 async def _run_all():
     from importlib import import_module
-    log    = import_module(f"{_PKG}.log")
+    log     = import_module(f"{_PKG}.log")
     qrlogin = import_module(f"{_PKG}.qrlogin")
     LttkClient = _pkg.LttkClient
 
-    bots: dict[str, asyncio.Task] = {}
+    bots: dict[str, asyncio.Task]      = {}
+    bot_instances: dict[str, LttkClient] = {}
+    _stopped: set[str]                 = set()   # intentionally stopped sessions
     loop = asyncio.get_event_loop()
 
     def _start(username: str):
         if username in bots and not bots[username].done():
             return
         log.info("lttk", f"arrancando sesion: {username}")
-        bot = LttkClient(username=username)
+        bot = LttkClient(username=username, managed=True)
+        bot_instances[username] = bot
         bots[username] = asyncio.create_task(bot.run())
 
     async def _do_qr():
@@ -53,31 +56,81 @@ async def _run_all():
         for s in sessions:
             _start(s)
 
+    async def _close_session(username: str):
+        """Logout, delete credentials, cancel task — marks as intentional."""
+        _stopped.add(username)
+        bot = bot_instances.get(username)
+        if bot:
+            try:
+                await bot.close_session()
+            except Exception as e:
+                log.warn("lttk", f"error cerrando sesion {username}: {e}")
+        task = bots.get(username)
+        if task and not task.done():
+            task.cancel()
+        log.ok("lttk", f"sesion {username} cerrada")
+
     async def _console():
         while True:
             line = await loop.run_in_executor(None, sys.stdin.readline)
-            cmd = line.strip().lower()
-            if cmd == "add":
+            cmd = line.strip()
+            cmd_lower = cmd.lower()
+
+            if cmd_lower == "add":
                 await _do_qr()
-            elif cmd == "list":
+
+            elif cmd_lower == "list":
                 if bots:
                     for name, task in bots.items():
-                        status = "activo" if not task.done() else f"detenido"
+                        status = "activo" if not task.done() else "detenido"
                         log.info("lttk", f"  {name}: {status}")
                 else:
                     log.info("lttk", "no hay sesiones activas")
-            elif cmd == "stop":
+
+            elif cmd_lower == "stop":
                 for task in bots.values():
                     task.cancel()
                 break
+
+            elif cmd_lower.startswith("close"):
+                parts = cmd.split(None, 1)
+                if len(parts) == 2:
+                    target = parts[1]
+                    if target in bots:
+                        await _close_session(target)
+                    else:
+                        log.warn("lttk", f"sesion no encontrada: {target}")
+                else:
+                    active = [n for n, t in bots.items() if not t.done()]
+                    if not active:
+                        log.info("lttk", "no hay sesiones activas para cerrar")
+                    elif len(active) == 1:
+                        await _close_session(active[0])
+                    else:
+                        log.info("lttk", "elige una sesion para cerrar:")
+                        for i, name in enumerate(active, 1):
+                            log.info("lttk", f"  {i}. {name}")
+                        choice = await loop.run_in_executor(None, sys.stdin.readline)
+                        choice = choice.strip()
+                        if choice.isdigit():
+                            idx = int(choice) - 1
+                            if 0 <= idx < len(active):
+                                await _close_session(active[idx])
+                            else:
+                                log.warn("lttk", "numero invalido")
+                        elif choice in bots:
+                            await _close_session(choice)
+                        else:
+                            log.warn("lttk", "cancelado")
+
             elif cmd:
-                log.info("lttk", "comandos: add | list | stop")
+                log.info("lttk", "comandos: add | list | stop | close [usuario]")
 
     async def _watchdog():
         while True:
             await asyncio.sleep(10)
             for name, task in list(bots.items()):
-                if task.done():
+                if task.done() and name not in _stopped:
                     exc = task.exception() if not task.cancelled() else None
                     if exc:
                         log.warn("lttk", f"sesion {name} terminó con error ({exc}), reiniciando...")

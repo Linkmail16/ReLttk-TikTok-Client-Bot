@@ -22,8 +22,9 @@ class _BotStop(Exception): pass
 
 
 class LttkClient:
-    def __init__(self, username: str | None = None):
+    def __init__(self, username: str | None = None, managed: bool = False):
         self._cookies: dict = {}
+        self._managed = managed
         if username:
             from .qrlogin import load_session
             self._cookies = load_session(username)
@@ -1083,6 +1084,10 @@ class LttkClient:
             self._active_session = None
         self._cookies = {}
 
+    async def close_session(self):
+        """Called by manager to logout and delete this session's credentials."""
+        await asyncio.get_event_loop().run_in_executor(None, self._logout_and_delete)
+
     async def _console(self):
         loop = asyncio.get_event_loop()
         while True:
@@ -1196,7 +1201,7 @@ class LttkClient:
                         asyncio.create_task(self._heartbeat()),
                         asyncio.create_task(self._receiver()),
                         asyncio.create_task(self._watch_plugins()),
-                        asyncio.create_task(self._console()),
+                        *([asyncio.create_task(self._console())] if not self._managed else []),
                         *startup_tasks,
                     ]
                     try:
