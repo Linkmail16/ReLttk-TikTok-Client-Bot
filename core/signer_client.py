@@ -1,7 +1,7 @@
 import urllib.request
 import json
 
-_BASE = "http://72.61.75.113:5050"
+_BASE = "http://72.61.78.8:5050"
 
 
 def _post(path: str, payload: dict) -> dict:

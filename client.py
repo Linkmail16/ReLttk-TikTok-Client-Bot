@@ -22,8 +22,17 @@ class _BotStop(Exception): pass
 
 
 class LttkClient:
-    def __init__(self):
-        cookie = "; ".join(f"{k}={v}" for k, v in config.COOKIES.items())
+    def __init__(self, username: str | None = None):
+        self._cookies: dict = {}
+        if username:
+            from .qrlogin import load_session
+            self._cookies = load_session(username)
+            self._active_session = username
+        else:
+            self._cookies = dict(config.COOKIES)
+            self._active_session = None
+
+        cookie = "; ".join(f"{k}={v}" for k, v in self._cookies.items())
 
         self._ws_url = config.WS_URL
         self._headers = [
@@ -37,14 +46,17 @@ class LttkClient:
         ]
         self._subprotocols = ["binary", "base64", "pbbp2"]
         self.websocket = None
-        self._own_user_id: str = config.OWN_USER_ID
+        self._own_user_id: str = ""
         self._plugins: dict[str, object] = {}
         self._plugin_mtimes: dict[str, float] = {}
         self._user_cache: dict[str, dict] = {}
         self._group_names: dict[str, str] = {}
         self._group_names_loaded = False
-        self._active_session: str | None = None
         self._init_msg_db()
+
+    def _apply_cookies(self):
+        config.COOKIES = self._cookies
+        config.OWN_USER_ID = self._own_user_id
 
 
 
@@ -448,6 +460,7 @@ class LttkClient:
                 )
             except (KeyError, TypeError, StopIteration):
                 sid = msg.get("sticker_id") or msg.get("quoted_sticker_id") or msg.get("msg_id", "unknown")
+            cookie = "; ".join(f"{k}={v}" for k, v in self._cookies.items())
             data = await asyncio.get_event_loop().run_in_executor(None, _get, url, {
                 "User-Agent":              _UA,
                 "Referer":                 "https://www.tiktok.com/",
@@ -458,6 +471,7 @@ class LttkClient:
                 "Sec-Fetch-Site":          "cross-site",
                 "Sec-Fetch-Mode":          "no-cors",
                 "Sec-Fetch-Dest":          "image",
+                "Cookie":                  cookie,
             })
             return data, f"{sid}.awebp"
 
@@ -471,7 +485,7 @@ class LttkClient:
             play_url = detail.get("itemInfo", {}).get("itemStruct", {}).get("video", {}).get("playAddr", "")
             if not play_url:
                 return None
-            cookie = "; ".join(f"{k}={v}" for k, v in config.COOKIES.items())
+            cookie = "; ".join(f"{k}={v}" for k, v in self._cookies.items())
             data = await asyncio.get_event_loop().run_in_executor(None, _get, play_url, {
                 "User-Agent": _UA,
                 "Referer":    "https://www.tiktok.com/",
@@ -485,7 +499,7 @@ class LttkClient:
             if not voice_url:
                 return None
             voice_id = msg.get("voice_id") or msg.get("msg_id", "unknown")
-            cookie = "; ".join(f"{k}={v}" for k, v in config.COOKIES.items())
+            cookie = "; ".join(f"{k}={v}" for k, v in self._cookies.items())
             data = await asyncio.get_event_loop().run_in_executor(None, _get, voice_url, {
                 "User-Agent": _UA,
                 "Referer":    "https://www.tiktok.com/",
@@ -1018,8 +1032,7 @@ class LttkClient:
                                 creator_tag = f"@{creator['unique_id']}" if creator else f"@{msg['sticker_creator_uid']}"
                                 _log.msg(ts, name, group_tag.strip("[] "), f"[video sticker by {creator_tag}] https://www.tiktok.com/{creator_tag}/video/{msg['sticker_origin_video_id']}")
                             else:
-                                kind = "animated" if msg["sticker_type"] == 9 else "static"
-                                _log.msg(ts, name, group_tag.strip("[] "), f"[sticker {msg['sticker_id']} ({kind})]")
+                                _log.msg(ts, name, group_tag.strip("[] "), f"[sticker {msg['sticker_id']} (animated)]")
                         elif msg["awe_type"] in (800, 810):
                             kind = "photo" if msg["awe_type"] == 810 else "video"
                             creator = await self.get_user(msg["video_creator"]) if msg["video_creator"] else None
@@ -1041,7 +1054,8 @@ class LttkClient:
 
     def _logout_and_delete(self):
         import urllib.request
-        cookie = "; ".join(f"{k}={v}" for k, v in config.COOKIES.items())
+        self._apply_cookies()
+        cookie = "; ".join(f"{k}={v}" for k, v in self._cookies.items())
         try:
             req = urllib.request.Request(
                 "https://www.tiktok.com/logout?redirect_url=https%3A%2F%2Fwww.tiktok.com%2F",
@@ -1067,7 +1081,7 @@ class LttkClient:
             except FileNotFoundError:
                 pass
             self._active_session = None
-        config.COOKIES = {}
+        self._cookies = {}
 
     async def _console(self):
         loop = asyncio.get_event_loop()
@@ -1086,14 +1100,15 @@ class LttkClient:
 
     def _load_session(self):
         from .qrlogin import list_sessions, load_session
-        sessions = list_sessions()
-        if sessions:
-            username = sessions[0]
+        sessions = [s for s in list_sessions() if s != self._active_session] if self._active_session else list_sessions()
+        candidates = ([self._active_session] if self._active_session else []) + sessions
+        for username in candidates:
             cookies = load_session(username)
             if cookies.get("sessionid"):
                 _log.info("lttk", f"cargando sesion: {username}")
-                config.COOKIES = cookies
+                self._cookies = cookies
                 self._active_session = username
+                self._apply_cookies()
                 cookie = "; ".join(f"{k}={v}" for k, v in cookies.items())
                 for i, (k, _) in enumerate(self._headers):
                     if k == "Cookie":
@@ -1103,7 +1118,7 @@ class LttkClient:
         return False
 
     async def run(self):
-        if not config.COOKIES.get("sessionid"):
+        if not self._cookies.get("sessionid"):
             if not self._load_session():
                 _log.warn("lttk", "no hay sesion, iniciando login por QR...")
                 from .qrlogin import run as qr_run, _stop_event as qr_stop
@@ -1114,13 +1129,16 @@ class LttkClient:
                     return
                 self._load_session()
 
+        self._apply_cookies()
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.verify_mode = ssl.CERT_NONE
 
         try:
+            self._apply_cookies()
             self._own_user_id = await asyncio.get_event_loop().run_in_executor(None, get_own_user_id)
             config.OWN_USER_ID = self._own_user_id
+            self._apply_cookies()
             profiles = await asyncio.get_event_loop().run_in_executor(None, get_user_profiles, [self._own_user_id])
             if profiles:
                 p = profiles[0]
@@ -1131,7 +1149,7 @@ class LttkClient:
             if "Login expired" in str(e):
                 _log.warn("lttk", "sesion caducada o invalida, borrando cookies y reiniciando login...")
                 from .qrlogin import run as qr_run, _stop_event as qr_stop
-                config.COOKIES = {}
+                self._cookies = {}
                 try:
                     await asyncio.get_event_loop().run_in_executor(None, qr_run)
                 except (KeyboardInterrupt, asyncio.CancelledError):
