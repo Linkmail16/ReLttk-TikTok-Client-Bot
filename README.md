@@ -9,6 +9,8 @@ Python bot for TikTok DMs. Connects to TikTok's internal WebSocket, reads incomi
 
 This started as a personal project and I decided to share it. It's early stage - expect rough edges, and expect improvements over time.
 
+When will I fully add the API? My rooted phone was stolen. Once I buy a new one, I'll implement many more features, like sending audio, images, and videos, un-sending messages, calls, streak pets, profiles, feeds, music, creating groups, joining groups, editing groups, managing groups, and much more.
+
 ---
 # Changelog
 
