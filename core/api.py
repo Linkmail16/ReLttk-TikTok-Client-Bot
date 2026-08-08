@@ -13,17 +13,14 @@ _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like
 _UID_CACHE_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".uid_cache.json")
 
 
-def _session_hash() -> str:
-    session = config.COOKIES.get("sessionid", "")
-    return hashlib.sha256(session.encode()).hexdigest()[:16]
+def _cookie_str(cookies: dict) -> str:
+    return "; ".join(f"{k}={v}" for k, v in cookies.items())
 
 
-def _cookie_header() -> str:
-    return "; ".join(f"{k}={v}" for k, v in config.COOKIES.items())
-
-
-def get_own_user_id() -> str:
-    current_hash = _session_hash()
+def get_own_user_id(cookies: dict | None = None) -> str:
+    cookies = cookies or config.COOKIES
+    session = cookies.get("sessionid", "")
+    current_hash = hashlib.sha256(session.encode()).hexdigest()[:16]
 
     try:
         with open(_UID_CACHE_FILE) as f:
@@ -39,7 +36,7 @@ def get_own_user_id() -> str:
             "accept":           "text/html",
             "accept-language":  "es-US,es;q=0.9",
             "user-agent":       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
-            "cookie":           _cookie_header(),
+            "cookie":           _cookie_str(cookies),
         },
     )
     with urllib.request.urlopen(req, timeout=10) as resp:
@@ -56,7 +53,8 @@ def get_own_user_id() -> str:
     return uid
 
 
-def get_user_profiles(user_ids: list[str]) -> list[dict]:
+def get_user_profiles(user_ids: list[str], cookies: dict | None = None) -> list[dict]:
+    cookies = cookies or config.COOKIES
     ids_param = urllib.parse.quote(json.dumps(user_ids))
     url = f"https://www.tiktok.com/tiktok/v1/im/user/profile/?aid=1988&user_ids={ids_param}"
 
@@ -65,7 +63,7 @@ def get_user_profiles(user_ids: list[str]) -> list[dict]:
         "accept-language":  "es-US,es;q=0.9",
         "referer":          "https://www.tiktok.com/messages?lang=es-419",
         "user-agent":       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
-        "cookie":           _cookie_header(),
+        "cookie":           _cookie_str(cookies),
     })
 
     with urllib.request.urlopen(req, timeout=10) as resp:
@@ -123,18 +121,19 @@ def get_item_detail(item_id: str) -> dict:
         "Accept":          "application/json, text/plain, */*",
         "Accept-Language": "es-419,es;q=0.9",
         "Referer":         "https://www.tiktok.com/",
-        "Cookie":          _cookie_header(),
+        "Cookie":          _cookie_str(config.COOKIES),
     })
     with urllib.request.urlopen(req, timeout=10) as resp:
         return json.loads(resp.read())
 
 
-def _fetch_inbox() -> bytes:
+def _fetch_inbox(cookies: dict | None = None, device_id: str | None = None, ms_token: str | None = None, verify_fp: str | None = None) -> bytes:
+    cookies = cookies or config.COOKIES
     _BV = "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 Edg/150.0.0.0"
     _FULL_UA = f"Mozilla/5.0 {_BV}"
-    device_id = config.DEVICE_ID or "0"
-    ms_token  = config.MSG_SDK_MS_TOKEN or ""
-    verify_fp = config.COOKIES.get("s_v_web_id", "verify_ms75rg2f_ftn5TmOL_0JAu_4qoc_Aq2f_n2UmR5ESX7SX")
+    device_id = device_id or config.DEVICE_ID or "0"
+    ms_token  = ms_token or cookies.get("msToken", "") or config.MSG_SDK_MS_TOKEN or ""
+    verify_fp = verify_fp or cookies.get("s_v_web_id", "verify_ms75rg2f_ftn5TmOL_0JAu_4qoc_Aq2f_n2UmR5ESX7SX")
 
     def _kv(k, v):
         return _pb_bytes(15, _pb_str(1, k) + _pb_str(2, v))
@@ -193,7 +192,7 @@ def _fetch_inbox() -> bytes:
             "Origin":       "https://www.tiktok.com",
             "Referer":      "https://www.tiktok.com/",
             "User-Agent":   _FULL_UA,
-            "Cookie":       _cookie_header(),
+            "Cookie":       _cookie_str(cookies),
         },
     )
     with urllib.request.urlopen(req, timeout=15) as resp:
@@ -271,12 +270,12 @@ def _parse_inbox(resp_body: bytes) -> list[dict]:
     return convs
 
 
-def get_conversations() -> list[dict]:
-    return _parse_inbox(_fetch_inbox())
+def get_conversations(cookies: dict | None = None, device_id: str | None = None) -> list[dict]:
+    return _parse_inbox(_fetch_inbox(cookies=cookies, device_id=device_id))
 
 
-def get_group_names() -> dict[str, str]:
-    convs = _parse_inbox(_fetch_inbox())
+def get_group_names(cookies: dict | None = None, device_id: str | None = None) -> dict[str, str]:
+    convs = _parse_inbox(_fetch_inbox(cookies=cookies, device_id=device_id))
     return {c["conv_id"]: c["name"] for c in convs if c["is_group"] and c["name"] != c["conv_id"]}
 
 
@@ -317,7 +316,7 @@ def get_music_detail(music_id: str) -> dict:
         "Accept":          "application/json, text/plain, */*",
         "Accept-Language": "es-419,es;q=0.9",
         "Referer":         "https://www.tiktok.com/",
-        "Cookie":          _cookie_header(),
+        "Cookie":          _cookie_str(config.COOKIES),
     })
     with urllib.request.urlopen(req, timeout=10) as resp:
         return json.loads(resp.read())
@@ -340,12 +339,13 @@ def _pb_bytes(field: int, v: bytes) -> bytes:
 def _pb_str(field: int, s: str) -> bytes:
     return _pb_bytes(field, s.encode())
 
-def get_conversation_history(conv_id: str, count: int = 20, cursor: int = 0, conv_short_id: int = 0, conv_type: int = 10011) -> bytes:
+def get_conversation_history(conv_id: str, count: int = 20, cursor: int = 0, conv_short_id: int = 0, conv_type: int = 10011, cookies: dict | None = None, device_id: str | None = None) -> bytes:
+    cookies = cookies or config.COOKIES
     _BV = "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 Edg/150.0.0.0"
     _FULL_UA = f"Mozilla/5.0 {_BV}"
-    device_id  = config.DEVICE_ID or "0"
-    ms_token   = config.MSG_SDK_MS_TOKEN or ""
-    verify_fp  = config.COOKIES.get("s_v_web_id", "verify_ms75rg2f_ftn5TmOL_0JAu_4qoc_Aq2f_n2UmR5ESX7SX")
+    device_id  = device_id or config.DEVICE_ID or "0"
+    ms_token   = cookies.get("msToken", "") or config.MSG_SDK_MS_TOKEN or ""
+    verify_fp  = cookies.get("s_v_web_id", "verify_ms75rg2f_ftn5TmOL_0JAu_4qoc_Aq2f_n2UmR5ESX7SX")
 
     def _kv(k, v):
         inner = _pb_str(1, k) + _pb_str(2, v)
@@ -413,20 +413,23 @@ def get_conversation_history(conv_id: str, count: int = 20, cursor: int = 0, con
             "Accept":       "application/x-protobuf",
             "Origin":       "https://www.tiktok.com",
             "Referer":      "https://www.tiktok.com/",
-            "Cookie":       _cookie_header(),
+            "Cookie":       _cookie_str(cookies),
         }
     )
     with urllib.request.urlopen(req, timeout=15) as resp:
         return resp.read()
 
-def get_pending_strangers() -> list[dict]:
+def get_pending_strangers(cookies: dict | None = None, own_user_id: str | None = None, device_id: str | None = None) -> list[dict]:
+    cookies = cookies or config.COOKIES
+    own_id  = own_user_id or config.OWN_USER_ID or ""
+
     def _kv2(key, val):
         inner = _pb_str(1, key) + _pb_str(2, val)
         return _pb_bytes(15, inner)
 
-    device_id = config.DEVICE_ID or "7643756217525126672"
-    ms_token  = config.COOKIES.get("msToken", "")
-    verify_fp = config.VERIFY_FP or config.COOKIES.get("s_v_web_id", "")
+    device_id = device_id or config.DEVICE_ID or "7643756217525126672"
+    ms_token  = cookies.get("msToken", "")
+    verify_fp = cookies.get("s_v_web_id", "") or config.VERIFY_FP or ""
 
     body = (
         _pb_varint(1, 203) +
@@ -483,13 +486,11 @@ def get_pending_strangers() -> list[dict]:
             "Origin":       "https://www.tiktok.com",
             "Referer":      "https://www.tiktok.com/",
             "User-Agent":   _UA,
-            "Cookie":       _cookie_header(),
+            "Cookie":       _cookie_str(cookies),
         },
     )
     with urllib.request.urlopen(req, timeout=15) as resp:
         resp_body = resp.read()
-
-    own_id = config.OWN_USER_ID or ""
 
     def _rv(buf, pos):
         r = 0; sh = 0
@@ -540,9 +541,11 @@ def get_pending_strangers() -> list[dict]:
     return results
 
 
-def accept_stranger(conv_id: str, to_user_id: str) -> bool:
-    csrf = config.COOKIES.get("tt_csrf_token", "")
-    verify_fp = config.VERIFY_FP or config.COOKIES.get("s_v_web_id", "")
+def accept_stranger(conv_id: str, to_user_id: str, cookies: dict | None = None, device_id: str | None = None) -> bool:
+    cookies   = cookies or config.COOKIES
+    device_id = device_id or config.DEVICE_ID or ""
+    csrf      = cookies.get("tt_csrf_token", "")
+    verify_fp = cookies.get("s_v_web_id", "") or config.VERIFY_FP or ""
     params = urllib.parse.urlencode({
         "aid": "1988",
         "app_language": "es-419",
@@ -555,7 +558,7 @@ def accept_stranger(conv_id: str, to_user_id: str) -> bool:
         "channel": "tiktok_web",
         "cookie_enabled": "true",
         "data_collection_enabled": "true",
-        "device_id": config.DEVICE_ID or "",
+        "device_id": device_id,
         "device_platform": "web_pc",
         "focus_state": "true",
         "history_len": "2",
@@ -585,7 +588,7 @@ def accept_stranger(conv_id: str, to_user_id: str) -> bool:
         "referer": "https://www.tiktok.com/messages",
         "tt-csrf-token": csrf,
         "user-agent": _UA,
-        "cookie": _cookie_header(),
+        "cookie": _cookie_str(cookies),
     })
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -626,7 +629,7 @@ def shorten_url(target: str) -> str:
         "Content-Type": "application/x-www-form-urlencoded",
         "Referer":      "https://www.tiktok.com/",
         "Accept":       "application/json, text/plain, */*",
-        "Cookie":       _cookie_header(),
+        "Cookie":       _cookie_str(config.COOKIES),
     })
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:

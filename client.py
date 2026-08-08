@@ -56,9 +56,6 @@ class LttkClient:
         self._accepted_strangers: set[str] = set()
         self._init_msg_db()
 
-    def _apply_cookies(self):
-        config.COOKIES = self._cookies
-        config.OWN_USER_ID = self._own_user_id
 
 
 
@@ -146,13 +143,15 @@ class LttkClient:
         return [_json.loads(r[0]) for r in rows]
 
     async def fetch_history_raw(self, conv_id: str, count: int = 20, cursor: int = 0, conv_short_id: int = 0, conv_type: int = 10011) -> bytes:
+        cookies = self._cookies
         return await asyncio.get_event_loop().run_in_executor(
-            None, get_conversation_history, conv_id, count, cursor, conv_short_id, conv_type
+            None, lambda: get_conversation_history(conv_id, count, cursor, conv_short_id, conv_type, cookies=cookies)
         )
 
     async def fetch_history(self, conv_id: str, count: int = 20, cursor: int = 0, conv_short_id: int = 0, conv_type: int = 10011) -> list[dict]:
+        cookies = self._cookies
         raw = await asyncio.get_event_loop().run_in_executor(
-            None, get_conversation_history, conv_id, count, cursor, conv_short_id, conv_type
+            None, lambda: get_conversation_history(conv_id, count, cursor, conv_short_id, conv_type, cookies=cookies)
         )
         return self._parse_history_response(raw)
 
@@ -281,7 +280,8 @@ class LttkClient:
     async def get_group_name(self, conv_id: str) -> str:
         if not self._group_names_loaded:
             try:
-                names = await asyncio.get_event_loop().run_in_executor(None, get_group_names)
+                cookies = self._cookies
+                names = await asyncio.get_event_loop().run_in_executor(None, lambda: get_group_names(cookies=cookies))
                 self._group_names.update(names)
             except Exception as e:
                 _log.error("lttk", f"error obteniendo nombres de grupos: {e}")
@@ -293,8 +293,9 @@ class LttkClient:
         if entry and time.monotonic() - entry["ts"] < _USER_CACHE_TTL:
             return entry["profile"]
         try:
+            cookies = self._cookies
             profiles = await asyncio.get_event_loop().run_in_executor(
-                None, get_user_profiles, [user_id]
+                None, lambda: get_user_profiles([user_id], cookies=cookies)
             )
             if profiles:
                 self._user_cache[user_id] = {"profile": profiles[0], "ts": time.monotonic()}
@@ -322,7 +323,8 @@ class LttkClient:
         return None
 
     async def get_conversations(self) -> list[dict]:
-        return await asyncio.get_event_loop().run_in_executor(None, get_conversations_api)
+        cookies = self._cookies
+        return await asyncio.get_event_loop().run_in_executor(None, lambda: get_conversations_api(cookies=cookies))
 
     async def get_groups(self) -> list[dict]:
         convs = await self.get_conversations()
@@ -936,15 +938,15 @@ class LttkClient:
     async def _stranger_loop(self):
         while True:
             try:
-                self._apply_cookies()
-                pending = await asyncio.get_event_loop().run_in_executor(None, get_pending_strangers)
+                cookies, own_uid = self._cookies, self._own_user_id
+                pending = await asyncio.get_event_loop().run_in_executor(None, lambda: get_pending_strangers(cookies=cookies, own_user_id=own_uid))
                 for entry in pending:
                     uid = entry["uid"]
                     conv_id = entry["conv_id"]
                     if uid == self._own_user_id or conv_id in self._accepted_strangers:
                         continue
                     try:
-                        ok = await asyncio.get_event_loop().run_in_executor(None, accept_stranger, conv_id, uid)
+                        ok = await asyncio.get_event_loop().run_in_executor(None, lambda: accept_stranger(conv_id, uid, cookies=cookies))
                         if ok:
                             self._accepted_strangers.add(conv_id)
                             _log.ok("lttk", f"chat aceptado: {uid}")
@@ -967,7 +969,8 @@ class LttkClient:
         sender = msg.get("sender_id", "")
         if conv_id and sender and sender != self._own_user_id and conv_id not in self._accepted_strangers:
             try:
-                ok = await asyncio.get_event_loop().run_in_executor(None, accept_stranger, conv_id, sender)
+                cookies = self._cookies
+                ok = await asyncio.get_event_loop().run_in_executor(None, lambda: accept_stranger(conv_id, sender, cookies=cookies))
                 if ok:
                     self._accepted_strangers.add(conv_id)
             except Exception:
@@ -1118,7 +1121,6 @@ class LttkClient:
 
     def _logout_and_delete(self):
         import urllib.request
-        self._apply_cookies()
         cookie = "; ".join(f"{k}={v}" for k, v in self._cookies.items())
         try:
             req = urllib.request.Request(
@@ -1175,7 +1177,6 @@ class LttkClient:
                 _log.info("lttk", f"cargando sesion: {username}")
                 self._cookies = cookies
                 self._active_session = username
-                self._apply_cookies()
                 cookie = "; ".join(f"{k}={v}" for k, v in cookies.items())
                 for i, (k, _) in enumerate(self._headers):
                     if k == "Cookie":
@@ -1196,7 +1197,6 @@ class LttkClient:
                     return
                 self._load_session()
 
-        self._apply_cookies()
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
         ssl_ctx.verify_mode = ssl.CERT_NONE
@@ -1204,8 +1204,8 @@ class LttkClient:
         try:
             for attempt in range(4):
                 try:
-                    self._apply_cookies()
-                    self._own_user_id = await asyncio.get_event_loop().run_in_executor(None, get_own_user_id)
+                    cookies = self._cookies
+                    self._own_user_id = await asyncio.get_event_loop().run_in_executor(None, lambda: get_own_user_id(cookies=cookies))
                     break
                 except Exception as e:
                     if "Login expired" in str(e):
@@ -1214,9 +1214,8 @@ class LttkClient:
                         await asyncio.sleep(3)
                     else:
                         raise
-            config.OWN_USER_ID = self._own_user_id
-            self._apply_cookies()
-            profiles = await asyncio.get_event_loop().run_in_executor(None, get_user_profiles, [self._own_user_id])
+            cookies = self._cookies
+            profiles = await asyncio.get_event_loop().run_in_executor(None, lambda: get_user_profiles([self._own_user_id], cookies=cookies))
             if profiles:
                 p = profiles[0]
                 _log.ok("lttk", f"conectado como: {p['nick_name']} (@{p['unique_id']}) [{self._own_user_id}]")
