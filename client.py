@@ -10,6 +10,7 @@ from datetime import datetime
 
 
 import websockets
+_WS_HEADERS_KW = "additional_headers" if tuple(int(x) for x in websockets.__version__.split(".")[:2]) >= (14, 0) else "extra_headers"
 
 from . import config
 from . import log as _log
@@ -947,8 +948,8 @@ class LttkClient:
                         continue
                     try:
                         ok = await asyncio.get_event_loop().run_in_executor(None, lambda: accept_stranger(conv_id, uid, cookies=cookies))
-                        self._accepted_strangers.add(conv_id)
                         if ok:
+                            self._accepted_strangers.add(conv_id)
                             _log.ok("lttk", f"chat aceptado: {uid}")
                         else:
                             _log.warn("lttk", f"no se pudo aceptar chat de {uid}")
@@ -973,8 +974,10 @@ class LttkClient:
                 ok = await asyncio.get_event_loop().run_in_executor(None, lambda: accept_stranger(conv_id, sender, cookies=cookies))
                 if ok:
                     self._accepted_strangers.add(conv_id)
+                else:
+                    return
             except Exception:
-                pass
+                return
         for name, plugin in list(self._plugins.items()):
             try:
                 if hasattr(plugin, "on_message"):
@@ -1240,7 +1243,7 @@ class LttkClient:
             try:
                 async with websockets.connect(
                     self._ws_url,
-                    extra_headers=self._headers,
+                    **{_WS_HEADERS_KW: self._headers},
                     subprotocols=self._subprotocols,
                     ssl=ssl_ctx,
                     ping_interval=20,
