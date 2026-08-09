@@ -947,8 +947,8 @@ class LttkClient:
                         continue
                     try:
                         ok = await asyncio.get_event_loop().run_in_executor(None, lambda: accept_stranger(conv_id, uid, cookies=cookies))
+                        self._accepted_strangers.add(conv_id)
                         if ok:
-                            self._accepted_strangers.add(conv_id)
                             _log.ok("lttk", f"chat aceptado: {uid}")
                         else:
                             _log.warn("lttk", f"no se pudo aceptar chat de {uid}")

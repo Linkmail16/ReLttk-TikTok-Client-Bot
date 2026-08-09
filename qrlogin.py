@@ -244,12 +244,11 @@ def run(did: str | None = None):
     try:
         from importlib import import_module
         _cfg = import_module(f"{_pkg_name()}.config")
-        _cfg.COOKIES = cookies
         _api = import_module(f"{_pkg_name()}.core.api")
         get_own_user_id  = _api.get_own_user_id
         get_user_profiles = _api.get_user_profiles
-        uid = get_own_user_id()
-        profiles = get_user_profiles([uid])
+        uid = get_own_user_id(cookies=cookies)
+        profiles = get_user_profiles([uid], cookies=cookies)
         if profiles:
             username = profiles[0].get("unique_id") or username
     except Exception as e:
