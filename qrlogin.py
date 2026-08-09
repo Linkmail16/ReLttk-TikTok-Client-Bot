@@ -240,15 +240,12 @@ def run(did: str | None = None):
 
     _log.ok("qrlogin", f"sesion obtenida: {sessionid[:8]}...")
 
-    username = "_temp"
+    username = f"session_{sessionid[:8]}"
     try:
         from importlib import import_module
-        _cfg = import_module(f"{_pkg_name()}.config")
         _api = import_module(f"{_pkg_name()}.core.api")
-        get_own_user_id  = _api.get_own_user_id
-        get_user_profiles = _api.get_user_profiles
-        uid = get_own_user_id(cookies=cookies)
-        profiles = get_user_profiles([uid], cookies=cookies)
+        uid = _api.get_own_user_id(cookies=cookies)
+        profiles = _api.get_user_profiles([uid], cookies=cookies)
         if profiles:
             username = profiles[0].get("unique_id") or username
     except Exception as e:
