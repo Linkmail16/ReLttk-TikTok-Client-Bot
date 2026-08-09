@@ -267,7 +267,7 @@ class LttkClient:
             "sticker_creator_uid": "", "sticker_url": "",
             "voice_id":   voice_id, "voice_duration": "",
             "live_room_id": "", "live_owner_id": "", "live_owner_name": "",
-            "comment_text": "", "comment_video_id": "", "comment_author_name": "",
+            "comment_text": "", "comment_video_id": "", "comment_author_name": "", "comment_sticker_url": "",
             "profile_uid": "", "profile_sec_uid": "", "profile_name": "",
             "story_item_id": "", "story_uid": "", "story_title": "",
             "greeting_card_text": "",
@@ -631,6 +631,12 @@ class LttkClient:
                             result["comment_text"]        = obj.get("comment", "")
                             result["comment_video_id"]    = str(obj.get("aweme_id", ""))
                             result["comment_author_name"] = obj.get("author_name", "")
+                            imgs = obj.get("comment_image_list", [])
+                            if imgs:
+                                urls = imgs[0].get("url_list", [])
+                                result["comment_sticker_url"] = urls[0] if urls else ""
+                            else:
+                                result["comment_sticker_url"] = ""
                         elif awe == 50001:
                             result["group_command"]  = obj.get("command_type", 0)
                             result["group_conv_id"]  = str(obj.get("conversation_id", ""))
@@ -914,6 +920,7 @@ class LttkClient:
             "comment_text":            msg.get("comment_text", ""),
             "comment_video_id":        msg.get("comment_video_id", ""),
             "comment_author_name":     msg.get("comment_author_name", ""),
+            "comment_sticker_url":     msg.get("comment_sticker_url", ""),
             "profile_uid":             msg.get("profile_uid", ""),
             "profile_sec_uid":         msg.get("profile_sec_uid", ""),
             "profile_name":            msg.get("profile_name", ""),
