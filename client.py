@@ -974,10 +974,8 @@ class LttkClient:
                 ok = await asyncio.get_event_loop().run_in_executor(None, lambda: accept_stranger(conv_id, sender, cookies=cookies))
                 if ok:
                     self._accepted_strangers.add(conv_id)
-                else:
-                    return
             except Exception:
-                return
+                pass
         for name, plugin in list(self._plugins.items()):
             try:
                 if hasattr(plugin, "on_message"):
