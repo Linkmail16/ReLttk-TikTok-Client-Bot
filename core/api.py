@@ -544,7 +544,7 @@ def get_pending_strangers(cookies: dict | None = None, own_user_id: str | None =
 def accept_stranger(conv_id: str, to_user_id: str, cookies: dict | None = None, device_id: str | None = None) -> bool:
     cookies   = cookies or config.COOKIES
     device_id = device_id or config.DEVICE_ID or ""
-    csrf      = cookies.get("tt_csrf_token", "")
+    csrf      = cookies.get("tt_csrf_token", "") or config.TT_CSRF_TOKEN or ""
     verify_fp = cookies.get("s_v_web_id", "") or config.VERIFY_FP or ""
     params = urllib.parse.urlencode({
         "aid": "1988",
@@ -581,6 +581,60 @@ def accept_stranger(conv_id: str, to_user_id: str, cookies: dict | None = None, 
         "to_user_id": to_user_id,
     }).encode()
     req = urllib.request.Request(url, data=body, method="POST", headers={
+        "accept": "*/*",
+        "accept-language": "es-419,es;q=0.9",
+        "content-type": "application/x-www-form-urlencoded",
+        "origin": "https://www.tiktok.com",
+        "referer": "https://www.tiktok.com/messages",
+        "tt-csrf-token": csrf,
+        "user-agent": _UA,
+        "cookie": _cookie_str(cookies),
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+        return data.get("status_code") == 0
+    except Exception:
+        return False
+
+
+def block_user(user_id: str, cookies: dict | None = None) -> bool:
+    cookies   = cookies or config.COOKIES
+    csrf      = cookies.get("tt_csrf_token", "") or config.TT_CSRF_TOKEN or ""
+    verify_fp = cookies.get("s_v_web_id", "") or config.VERIFY_FP or ""
+    device_id = config.DEVICE_ID or ""
+    params = urllib.parse.urlencode({
+        "aid": "1988",
+        "app_language": "es-419",
+        "app_name": "tiktok_web",
+        "browser_language": "es-419",
+        "browser_name": "Mozilla",
+        "browser_online": "true",
+        "browser_platform": "Win32",
+        "browser_version": "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+        "channel": "tiktok_web",
+        "cookie_enabled": "true",
+        "data_collection_enabled": "true",
+        "device_id": device_id,
+        "device_platform": "web_pc",
+        "focus_state": "true",
+        "history_len": "2",
+        "is_fullscreen": "false",
+        "is_page_visible": "true",
+        "os": "windows",
+        "priority_region": "CO",
+        "referer": "https://www.tiktok.com/messages",
+        "region": "CO",
+        "screen_height": "1080",
+        "screen_width": "1920",
+        "tz_name": "America/Bogota",
+        "user_is_login": "true",
+        "verifyFp": verify_fp,
+        "webcast_language": "es-419",
+    })
+    url  = f"https://www.tiktok.com/api/commit/relation/block/?{params}"
+    body = urllib.parse.urlencode({"to_user_id": user_id}).encode()
+    req  = urllib.request.Request(url, data=body, method="POST", headers={
         "accept": "*/*",
         "accept-language": "es-419,es;q=0.9",
         "content-type": "application/x-www-form-urlencoded",
