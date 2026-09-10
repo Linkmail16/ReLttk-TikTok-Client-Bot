@@ -14,7 +14,6 @@ When will I fully add the API? My rooted phone was stolen. Once I buy a new one,
 ---
 # Changelog
 
-## [Unreleased]
 
 ### Added
 - `client.py`: Message database (SQLite) — persists received messages locally, max 1000 entries
