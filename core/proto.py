@@ -100,7 +100,8 @@ def _build_video_share_body(conv_id: str, short_id: int, item_detail: dict,
 
 
 def _build_msg_body(conv_id: str, short_id: int, text: str, client_id: str,
-                    quote: dict | None = None, is_group: bool = False) -> bytes:
+                    quote: dict | None = None, is_group: bool = False,
+                    awe_type: int | None = None) -> bytes:
     if is_group:
         awe = 703 if quote else 0
         content_str = json.dumps({"aweType": awe, "text": text}, separators=(',', ':'))
@@ -152,7 +153,7 @@ def _build_msg_body(conv_id: str, short_id: int, text: str, client_id: str,
         )
         field3_val = 7524542718409605381
     else:
-        content_str = json.dumps({"aweType": 0, "text": text}, separators=(',', ':'))
+        content_str = json.dumps({"aweType": awe_type if awe_type is not None else 0, "text": text}, separators=(',', ':'))
         field3_val  = 7305620471088775430
 
     body = (
@@ -316,6 +317,7 @@ def build_ws_packet(
     bogus_index: int    = 1,
     quote: dict | None  = None,
     is_group: bool      = False,
+    awe_type: int | None = None,
 ) -> tuple[bytes, int]:
     client_id = str(uuid.uuid4())
     seq_id    = int(time.time() * 1000)
@@ -326,7 +328,7 @@ def build_ws_packet(
         msg_type = 7524542718409605381
     else:
         msg_type = 7305620471088775430
-    msg_body     = _build_msg_body(conv_id, short_id, text, client_id, quote, is_group)
+    msg_body     = _build_msg_body(conv_id, short_id, text, client_id, quote, is_group, awe_type)
     request_body = _build_request_body(msg_body, device_id, sdk_ms_token,
                                        tt_public_key, tt_client_data)
 
@@ -385,7 +387,7 @@ def build_ws_packet(
         f_str(7, "pb") +
         f_bytes(8, request_body)
     )
-    return packet, msg_type
+    return packet, msg_type, client_id
 
 
 def build_video_share_packet(
@@ -537,6 +539,102 @@ def build_reaction_packet(
     )
 
 
+def build_delete_everyone_packet(
+    conv_id: str,
+    msg_type: int,
+    msg_id: int,
+    device_id: str,
+    sdk_ms_token: str,
+    tt_public_key: str  = "",
+    tt_client_data: str = "",
+    bogus_index: int    = 1,
+) -> bytes:
+    seq_id = int(time.time() * 1000)
+
+    delete_body = (
+        f_str(1, conv_id) +
+        f_varint(2, msg_type) +
+        f_varint(3, 1) +
+        f_varint(4, msg_id) +
+        f_varint(5, 0)
+    )
+    ctx = [
+        ("aid", "1988"), ("app_name", "tiktok_web"), ("channel", "web"),
+        ("device_platform", "web_pc"), ("device_id", device_id),
+        ("region", "CO"), ("priority_region", "CO"), ("os", "windows"),
+        ("referer", "https://www.tiktok.com/messages?lang=es-419"),
+        ("root_referer", ""), ("cookie_enabled", "true"),
+        ("screen_width", "1920"), ("screen_height", "1080"),
+        ("browser_language", "es-ES"), ("browser_platform", "Win32"),
+        ("browser_name", "Mozilla"), ("browser_version", BV),
+        ("browser_online", "true"), ("verifyFp", ""),
+        ("app_language", "es-419"), ("webcast_language", "es-419"),
+        ("tz_name", "America/Bogota"), ("is_page_visible", "true"),
+        ("focus_state", "true"), ("is_fullscreen", "false"),
+        ("history_len", "3"), ("user_is_login", "true"),
+        ("data_collection_enabled", "true"), ("from_appID", "1988"),
+        ("locale", "es-419"), ("user_agent", UA),
+        ("Web-Sdk-Ms-Token", sdk_ms_token),
+        ("tt-ticket-guard-public-key", tt_public_key),
+        ("tt-ticket-guard-client-data", tt_client_data),
+        ("tt-ticket-guard-version", "2"),
+        ("tt-ticket-guard-iteration-version", "0"),
+        ("tt-ticket-guard-web-version", "1"),
+    ]
+    request_body = (
+        f_varint(1, CMD_DELETE) +
+        f_varint(2, CMD_DELETE) +
+        f_str(3, "1.7.0") +
+        f_str(4, "") +
+        f_varint(5, 1) +
+        f_varint(6, 0) +
+        f_bytes(8, f_bytes(CMD_DELETE, delete_body)) +
+        f_str(9, device_id) +
+        f_str(11, "web") +
+        b''.join(f_ctx(k, v) for k, v in ctx) +
+        f_varint(18, 0)
+    )
+
+    raw_for_sign = (
+        f_varint(1, CMD_DELETE) +
+        f_varint(2, seq_id) +
+        f_varint(3, 5) +
+        f_varint(4, 1) +
+        f_str(7, "pb") +
+        f_bytes(8, request_body)
+    )
+    x_bogus = sign_ws(raw_for_sign.hex()[:32], bogus_index)
+
+    frame_headers = [
+        ("X-Bogus", x_bogus), ("aid", "1988"), ("app_name", "tiktok_web"),
+        ("channel", "web"), ("device_platform", "web_pc"), ("device_id", device_id),
+        ("region", "CO"), ("priority_region", "CO"), ("os", "windows"),
+        ("referer", "https://www.tiktok.com/messages?lang=es-419"),
+        ("root_referer", ""), ("cookie_enabled", "true"),
+        ("screen_width", "1920"), ("screen_height", "1080"),
+        ("browser_language", "es-ES"), ("browser_platform", "Win32"),
+        ("browser_name", "Mozilla"), ("browser_version", BV),
+        ("browser_online", "true"), ("verifyFp", ""),
+        ("app_language", "es-419"), ("webcast_language", "es-419"),
+        ("tz_name", "America/Bogota"), ("is_page_visible", "true"),
+        ("focus_state", "true"), ("is_fullscreen", "false"),
+        ("history_len", "3"), ("user_is_login", "true"),
+        ("data_collection_enabled", "true"), ("from_appID", "1988"),
+        ("locale", "es-419"), ("user_agent", UA),
+        ("Web-Sdk-Ms-Token", sdk_ms_token),
+    ]
+
+    return (
+        f_varint(1, CMD_DELETE) +
+        f_varint(2, seq_id) +
+        f_varint(3, 5) +
+        f_varint(4, 1) +
+        b''.join(f_header(k, v) for k, v in frame_headers) +
+        f_str(7, "pb") +
+        f_bytes(8, request_body)
+    )
+
+
 def build_delete_packet(
     conv_id: str,
     msg_type: int,
@@ -633,3 +731,4 @@ def build_delete_packet(
         f_str(7, "pb") +
         f_bytes(8, request_body)
     )
+
