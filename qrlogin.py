@@ -23,7 +23,7 @@ _REGION    = "CO"
 _LANG      = "es-419"
 
 _SESSION_DIR    = os.path.join(os.path.dirname(__file__), "sesion")
-_SEED_MS_TOKEN  = "HMBeLDYedrUoeXCAufTF57x_AxNzdAM4tGCO77TNBOEDI-AR-920A_j-7Aaoxhldmb13odmedocBNKT8BGbUD0MxVKd4vTNhQZbLmKaKXADNpKwrojT7566jHfaKFNf8qM9tmzfUPsAX9BtgGV-L68A="
+_SEED_MS_TOKEN  = "n8VdIat8AnERg_j9aNTiWJAHodoWYeC4bFBiz8RqtURuz_RdFacc_r5w85R1o2oGXsqaWRvXDZkdq6u4ywHT8DMXuJ5XapDs70Tjl_Fz-rnvfNEUDfvlJglps5crqgNnRtxhw4Ez"
 
 _SHARK_EXTRA_TMPL = (
     '{{"aid":{aid},"app_name":"Tik_Tok_Login","channel":"tiktok_web",'
@@ -42,8 +42,9 @@ _SHARK_EXTRA_TMPL = (
 def _sign(query: str) -> str:
     from importlib import import_module
     sign_full = import_module(f"{_pkg_name()}.core.signer_client").sign_full
-    signed, x_gnarly = sign_full(query)
-    return f"{signed}&X-Gnarly={x_gnarly}"
+    qs = query.rstrip("&").removesuffix("msToken=").rstrip("&")
+    signed, x_gnarly = sign_full(qs, ua=_UA)
+    return f"{signed}&X-Gnarly={urllib.parse.quote(x_gnarly, safe='')}"
 
 
 def _shark_extra(did: str) -> str:
@@ -255,6 +256,61 @@ def run(did: str | None = None):
     _log.ok("qrlogin", f"sesion guardada: {path}")
 
 
+def _handle_2fa(opener, passport_ticket: str) -> bool:
+    base = (
+        f"aid={_AID}"
+        f"&pseudo_id=PID00000000000000000"
+        f"&passport_ticket={urllib.parse.quote(passport_ticket)}"
+        f"&mix_mode=0"
+        f"&fixed_mix_mode=0"
+    )
+    url = f"https://web-sg.tiktok.com/passport/aaas/authenticate/"
+    csrf = ""
+    for h in opener.handlers:
+        if hasattr(h, "cookiejar"):
+            csrf = next((c.value for c in h.cookiejar if c.name == "tt_csrf_token"), "")
+            break
+
+    def _post(extra: str):
+        body = (base + "&" + extra).encode()
+        req = urllib.request.Request(url, data=body, method="POST", headers={
+            "User-Agent":    _UA,
+            "Content-Type":  "application/x-www-form-urlencoded",
+            "Referer":       "https://www.tiktok.com/login/qrcode",
+            "Accept":        "application/json, text/javascript",
+            "x-tt-passport-csrf-token": csrf,
+        })
+        with opener.open(req, timeout=15) as resp:
+            return json.loads(resp.read())
+
+    try:
+        r = _post("challenge_type=2&action=3")
+        if r.get("message") != "success":
+            _log.error("qrlogin", f"2FA: error enviando código: {r}")
+            return False
+        _log.ok("qrlogin", "2FA: código enviado al email/teléfono registrado")
+    except Exception as e:
+        _log.error("qrlogin", f"2FA: error en action=3: {e}")
+        return False
+
+    code = input("[qrlogin] ingresa el código de verificación: ").strip()
+    if not code:
+        _log.error("qrlogin", "2FA: código vacío, cancelando")
+        return False
+
+    hex_code = code.encode().hex()
+    try:
+        r = _post(f"challenge_type=2&action=4&mix_mode=1&fixed_mix_mode=1&code={urllib.parse.quote(hex_code)}")
+        if r.get("message") != "success":
+            _log.error("qrlogin", f"2FA: código incorrecto: {r}")
+            return False
+        _log.ok("qrlogin", "2FA: verificación exitosa")
+        return True
+    except Exception as e:
+        _log.error("qrlogin", f"2FA: error en action=4: {e}")
+        return False
+
+
 def _try_login(did: str) -> dict | None:
                                         
     jar = http.cookiejar.CookieJar()
@@ -324,7 +380,6 @@ def _try_login(did: str) -> dict | None:
     _print_qr(short_url)
     print()
 
-                                                                                     
     ms_token = _fetch_ms_token(did) or next((c.value for c in jar if c.name == "msToken"), "")
 
                 
@@ -359,6 +414,9 @@ def _try_login(did: str) -> dict | None:
                 resp = urllib.request.urlopen(req, timeout=10)
                 resp_body = resp.read()
                 raw_headers = resp.headers
+            except urllib.error.HTTPError as e:
+                raw_headers = e.headers
+                resp_body = e.read()
             except KeyboardInterrupt:
                 raise
             except Exception as e:
@@ -366,7 +424,6 @@ def _try_login(did: str) -> dict | None:
                 time.sleep(2)
                 continue
 
-                                                            
             for line in str(raw_headers).splitlines():
                 if line.lower().startswith("set-cookie:"):
                     part = line[len("set-cookie:"):].strip().split(";")[0].strip()
@@ -374,7 +431,29 @@ def _try_login(did: str) -> dict | None:
                         ms_token = part[len("msToken="):]
 
             data = json.loads(resp_body)
+
             if data.get("message") != "success":
+                err_code = data.get("data", {}).get("error_code", 0)
+                if err_code == 2135:
+                    passport_ticket = ""
+                    for line in str(raw_headers).splitlines():
+                        if "x-tt-verify-idv-decision-conf" in line.lower():
+                            import json as _json2
+                            try:
+                                conf_str = line.split(":", 1)[1].strip()
+                                conf = _json2.loads(conf_str)
+                                passport_ticket = conf.get("passport_ticket", "")
+                            except Exception:
+                                pass
+                    if not passport_ticket:
+                        _log.error("qrlogin", "2FA requerida pero no se pudo obtener passport_ticket")
+                        _stop_event.wait(3)
+                        continue
+                    _log.warn("qrlogin", "2FA requerida (verificación de identidad)")
+                    ok = _handle_2fa(opener, passport_ticket)
+                    if not ok:
+                        return None
+                    continue
                 _log.error("qrlogin", f"{data.get('data', {}).get('description', data)}, reintentando...")
                 _stop_event.wait(3)
                 continue
