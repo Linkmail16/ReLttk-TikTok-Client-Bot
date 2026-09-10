@@ -14,7 +14,7 @@ _WS_HEADERS_KW = "additional_headers" if tuple(int(x) for x in websockets.__vers
 
 from . import config
 from . import log as _log
-from .core import build_ws_packet, build_reaction_packet, build_delete_packet, build_video_share_packet, get_user_profiles, get_own_user_id, get_item_detail, get_music_detail, get_group_names, get_conversation_history, get_conversations_api, get_pending_strangers, accept_stranger
+from .core import build_ws_packet, build_reaction_packet, build_delete_packet, build_delete_everyone_packet, build_video_share_packet, get_user_profiles, get_own_user_id, get_item_detail, get_music_detail, get_group_names, get_conversation_history, get_conversations_api, get_pending_strangers, accept_stranger, block_user
 
 _USER_CACHE_TTL = 60           
 
@@ -55,6 +55,7 @@ class LttkClient:
         self._group_names: dict[str, str] = {}
         self._group_names_loaded = False
         self._accepted_strangers: set[str] = set()
+        self._sent_echo: dict[str, dict] = {}
         self._init_msg_db()
 
 
@@ -118,6 +119,13 @@ class LttkClient:
             (msg_id, msg.get("conv_id", ""), msg.get("sender_id", ""), msg.get("awe_type", 0), ts,
              _json.dumps(msg, default=str))
         )
+        client_msg_id = msg.get("client_msg_id", "")
+        if client_msg_id and client_msg_id != msg_id:
+            self._msg_db.execute(
+                "INSERT OR REPLACE INTO messages(msg_id, conv_id, sender_id, awe_type, ts, data) VALUES (?,?,?,?,?,?)",
+                (client_msg_id, msg.get("conv_id", ""), msg.get("sender_id", ""), msg.get("awe_type", 0), ts,
+                 _json.dumps(msg, default=str))
+            )
         self._msg_db.commit()
         count = self._msg_db.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
         if count > 1000:
@@ -130,6 +138,8 @@ class LttkClient:
 
     def get_message(self, msg_id: str) -> dict | None:
         import json as _json
+        if str(msg_id) in self._sent_echo:
+            return self._sent_echo[str(msg_id)]
         row = self._msg_db.execute(
             "SELECT data FROM messages WHERE msg_id = ?", (str(msg_id),)
         ).fetchone()
@@ -225,6 +235,12 @@ class LttkClient:
         index_in_conv = p.get("4", 0)
         conv_short_id = p.get("5", 0)
 
+        client_msg_id = ""
+        for extra in (p.get("9") or []):
+            if isinstance(extra, dict) and extra.get("1") == "s:client_message_id":
+                client_msg_id = extra.get("2", "")
+                break
+
         content_raw = p.get("8", "")
         text = ""
         video_id = ""; video_creator = ""
@@ -276,6 +292,7 @@ class LttkClient:
             "quoted_awe_type": 0, "quoted_text": "", "quoted_video_id": "",
             "quoted_video_uid": "", "quoted_sticker_id": "", "quoted_sticker_url": "",
             "proto": p,
+            "client_msg_id": client_msg_id,
         }
 
     async def get_group_name(self, conv_id: str) -> str:
@@ -337,7 +354,7 @@ class LttkClient:
 
     async def send_message(self, conv_id: str = "", text: str = "",
                            short_id: int = 1, quote: dict | None = None,
-                           *, msg: dict | None = None) -> int:
+                           *, msg: dict | None = None, awe_type: int | None = None) -> int:
         is_group = False
         if msg is not None:
             if not conv_id:
@@ -352,7 +369,7 @@ class LttkClient:
                     "msg_id":   msg["msg_id"],
                     "msg_type": msg["msg_type"],
                 }
-        packet, msg_type = build_ws_packet(
+        packet, msg_type, client_id = build_ws_packet(
             conv_id        = conv_id,
             short_id       = short_id,
             text           = text,
@@ -362,10 +379,12 @@ class LttkClient:
             tt_client_data = config.TT_CLIENT_DATA,
             quote          = quote,
             is_group       = is_group,
+            awe_type       = awe_type,
         )
         await self.websocket.send(packet)
         _log.info("send", f"[{conv_id}] {text!r}" if text else f"[{conv_id}] <non-text msg_type={msg_type}>")
-        return msg_type
+        self._sent_echo[client_id] = {"conv_id": conv_id, "msg_type": msg_type, "msg_id": 0, "client_id": client_id}
+        return msg_type, client_id
 
     async def send_video(self, conv_id: str, item_id: str, short_id: int = 1) -> int:
         detail = await asyncio.get_event_loop().run_in_executor(None, get_item_detail, item_id)
@@ -417,6 +436,23 @@ class LttkClient:
         )
         await self.websocket.send(packet)
 
+    async def delete_message_everyone(self, conv_id: str = "", msg_type: int = 0,
+                                      msg_id: int = 0, *, msg: dict | None = None):
+        if msg is not None:
+            if not conv_id:  conv_id  = msg["conv_id"]
+            if not msg_type: msg_type = msg["msg_type"]
+            if not msg_id:   msg_id   = int(msg["msg_id"]) if msg["msg_id"] else 0
+        packet = build_delete_everyone_packet(
+            conv_id        = conv_id,
+            msg_type       = msg_type,
+            msg_id         = msg_id,
+            device_id      = config.DEVICE_ID,
+            sdk_ms_token   = config.MSG_SDK_MS_TOKEN,
+            tt_public_key  = config.TT_PUBLIC_KEY,
+            tt_client_data = config.TT_CLIENT_DATA,
+        )
+        await self.websocket.send(packet)
+
     async def remove_reaction(self, conv_id: str = "", msg_type: int = 0,
                               sender_id: str = "", emoji: str = "❤️",
                               short_id: int = 1, *, msg: dict | None = None):
@@ -438,6 +474,11 @@ class LttkClient:
         )
         await self.websocket.send(packet)
 
+    async def block_user(self, user_id: str) -> bool:
+        return await asyncio.get_event_loop().run_in_executor(
+            None, lambda: block_user(user_id, cookies=self._cookies)
+        )
+
     async def download(self, msg: dict) -> tuple[bytes, str] | None:
         import urllib.request as _urlreq
         awe = msg.get("awe_type", 0)
@@ -456,6 +497,8 @@ class LttkClient:
                     url = msg["proto"]["20"]["7"]["1"]["2"]
                 except (KeyError, TypeError):
                     url = ""
+            import re as _re
+            url = _re.sub(r'(%3D|=)[^&%=]*$', r'\1', url)
             if not url:
                 return None
             try:
@@ -465,18 +508,16 @@ class LttkClient:
                 )
             except (KeyError, TypeError, StopIteration):
                 sid = msg.get("sticker_id") or msg.get("quoted_sticker_id") or msg.get("msg_id", "unknown")
-            cookie = "; ".join(f"{k}={v}" for k, v in self._cookies.items())
             data = await asyncio.get_event_loop().run_in_executor(None, _get, url, {
-                "User-Agent":              _UA,
-                "Referer":                 "https://www.tiktok.com/",
-                "Accept":                  "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-                "sec-ch-ua":               '"Not;A=Brand";v="8", "Chromium";v="150", "Microsoft Edge";v="150"',
-                "sec-ch-ua-mobile":        "?0",
-                "sec-ch-ua-platform":      '"Windows"',
-                "Sec-Fetch-Site":          "cross-site",
-                "Sec-Fetch-Mode":          "no-cors",
-                "Sec-Fetch-Dest":          "image",
-                "Cookie":                  cookie,
+                "User-Agent":        _UA,
+                "Referer":           "https://www.tiktok.com/",
+                "Accept":            "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                "sec-ch-ua":         '"Not=A?Brand";v="99", "Microsoft Edge";v="151", "Chromium";v="151"',
+                "sec-ch-ua-mobile":  "?0",
+                "sec-ch-ua-platform": '"Windows"',
+                "Sec-Fetch-Site":    "cross-site",
+                "Sec-Fetch-Mode":    "no-cors",
+                "Sec-Fetch-Dest":    "image",
             })
             return data, f"{sid}.awebp"
 
@@ -772,7 +813,7 @@ class LttkClient:
             "op":          modifys[0].get("Op", 0),
         }
 
-    def _parse(self, data: bytes, decompressed: bytes | None = None) -> dict | None:
+    def _parse(self, data: bytes, decompressed: bytes | None = None, _allow_own: bool = False) -> dict | None:
         def find_msgbody(raw, depth=0):
             if depth > 8:
                 return None, None
@@ -814,7 +855,7 @@ class LttkClient:
             own = self._own_user_id
             msg["sender_id"] = id_b if id_a == own else id_a
 
-        if f7_sender == self._own_user_id:
+        if f7_sender == self._own_user_id and not _allow_own:
             return None
 
         sticker_id = ""
@@ -838,9 +879,14 @@ class LttkClient:
             m = re.search(rb'a:sticker_creator_user_id\x12.([0-9]+)', raw_search)
             if m:
                 sticker_creator_uid = m.group(1).decode("utf-8", errors="replace")
-            urls = re.findall(rb'(https://[A-Za-z0-9\-._~/:@!$&\'()+,;=%?]+ibyteimg\.com[A-Za-z0-9\-._~/:@!$&\'()+,;=%?]+\.awebp[A-Za-z0-9\-._~/:@!$&\'()+,;=%?]*)', raw_search)
-            if urls:
-                sticker_url = urls[0].decode("utf-8", errors="replace")
+            try:
+                sticker_url = msg["proto"]["20"]["7"]["1"]["2"]
+            except (KeyError, TypeError):
+                sticker_url = ""
+            if not sticker_url:
+                urls = re.findall(rb'(https://[A-Za-z0-9\-._~/:@!$&\'()+,;=%?]+ibyteimg\.com[A-Za-z0-9\-._~/:@!$&\'()+,;=%?]+\.awebp[A-Za-z0-9\-._~/:@!$&\'()+,;=%?]*)', raw_search)
+                if urls:
+                    sticker_url = urls[0].decode("utf-8", errors="replace")
         if msg.get("quoted_awe_type") == 1805:
             urls = re.findall(rb'(https://[A-Za-z0-9\-._~/:@!$&\'()+,;=%?]+ibyteimg\.com[A-Za-z0-9\-._~/:@!$&\'()+,;=%?]+\.awebp[A-Za-z0-9\-._~/:@!$&\'()+,;=%?]*)', raw_search)
             if urls:
@@ -978,11 +1024,11 @@ class LttkClient:
         if conv_id and sender and sender != self._own_user_id and conv_id not in self._accepted_strangers:
             try:
                 cookies = self._cookies
-                ok = await asyncio.get_event_loop().run_in_executor(None, lambda: accept_stranger(conv_id, sender, cookies=cookies))
-                if ok:
-                    self._accepted_strangers.add(conv_id)
+                await asyncio.get_event_loop().run_in_executor(None, lambda: accept_stranger(conv_id, sender, cookies=cookies))
             except Exception:
                 pass
+            finally:
+                self._accepted_strangers.add(conv_id)
         for name, plugin in list(self._plugins.items()):
             try:
                 if hasattr(plugin, "on_message"):
@@ -1035,6 +1081,15 @@ class LttkClient:
                         _log.error("lttk", "No se pudo enviar debido a la restriccion de envio")
                         continue
                     decompressed = self._decompress_lz4_frame(raw)
+                    search_echo = decompressed if decompressed else raw
+                    m_echo = re.search(rb's:client_message_id\x12\x24([0-9a-f\-]{36})', search_echo)
+                    if m_echo:
+                        uuid = m_echo.group(1).decode("utf-8", errors="replace")
+                        if uuid in self._sent_echo:
+                            echo_msg = self._parse(raw, decompressed, _allow_own=True)
+                            if echo_msg and echo_msg.get("msg_id"):
+                                self._sent_echo[uuid]["msg_id"] = int(echo_msg["msg_id"])
+                                self._sent_echo[uuid]["msg_type"] = echo_msg.get("msg_type", self._sent_echo[uuid]["msg_type"])
                     rxn = self._parse_reaction(decompressed) if decompressed else None
                     if rxn and rxn["sender_id"] != self._own_user_id:
                         user = await self.get_user(rxn["sender_id"])
