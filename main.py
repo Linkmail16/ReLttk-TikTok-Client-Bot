@@ -25,7 +25,7 @@ async def _run_all():
 
     bots: dict[str, asyncio.Task]      = {}
     bot_instances: dict[str, LttkClient] = {}
-    _stopped: set[str]                 = set()   # intentionally stopped sessions
+    _stopped: set[str]                 = set()  
     loop = asyncio.get_event_loop()
 
     def _start(username: str):
