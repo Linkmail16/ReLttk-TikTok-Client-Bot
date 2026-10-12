@@ -14,35 +14,39 @@ When will I fully add the API? My rooted phone was stolen. Once I buy a new one,
 ---
 # Changelog
 
-### 10/09/2026
+## [Unreleased]
 
 ### Added
-- New signer (replaced the private signer with a free, local signer)
-- Support for two-step login verification (o "Two-factor authentication (2FA) login support")
-
-### Added
-- `client.py`: Message database (SQLite), persists received messages locally, max 1000 entries
+- `qrlogin.py`: 2FA support for QR login, now handles it when TikTok asks to verify your identity
+- `client.py`: Message database (SQLite) — persists received messages locally, max 1000 entries
   - `_init_msg_db()`, `_store_msg()`, `get_message()`, `get_messages()`
 - `client.py`: Conversation history API
   - `fetch_history()`, `fetch_history_raw()`, `_parse_history_response()`, `_parse_history_msg()`
-- `client.py`: `_proto_to_dict()`,  converts raw protobuf bytes to dict for inspection
-- `client.py`: `get_conversations()`, `get_groups()`, `get_private_chats()`,  list and filter conversations
-- `client.py`: `download(msg)`,  downloads stickers, videos and voice messages
-- `core/api.py`: `_fetch_inbox()`, `_parse_inbox()`, `get_conversations()`,  inbox fetch with full conversation metadata (name, is_group, unread, member_count, avatar)
-- `core/api.py`: `get_conversation_history()`,  paginated history fetch with cursor support
-- `core/api.py`: `_varint()`, `_pb_varint()`, `_pb_bytes()`, `_pb_str()`,  protobuf encoding helpers
+- `client.py`: `_proto_to_dict()` — converts raw protobuf bytes to dict for inspection
+- `client.py`: `get_conversations()`, `get_groups()`, `get_private_chats()` — list and filter conversations
+- `client.py`: `download(msg)` — downloads stickers, videos and voice messages
+- `core/api.py`: `_fetch_inbox()`, `_parse_inbox()`, `get_conversations()` — inbox fetch with full conversation metadata (name, is_group, unread, member_count, avatar)
+- `core/api.py`: `get_conversation_history()` — paginated history fetch with cursor support
+- `core/api.py`: `_varint()`, `_pb_varint()`, `_pb_bytes()`, `_pb_str()` — protobuf encoding helpers
 - `plugins/stickerdl.py`: `/dl` command to download quoted stickers, saves to `stickers/`
-- `main.py`: `cookies <path>` argument, import cookies from JSON file
-- `main.py`: `browser <name>` argument, import cookies from browser (Chrome, Firefox, etc.)
+- `main.py`: `cookies <path>` argument — import cookies from JSON file
+- `main.py`: `browser <name>` argument — import cookies from browser (Chrome, Firefox, etc.)
 - `browsercookies.py`: helper to extract TikTok cookies from local browser storage
 
 ### Changed
-- `core/api.py`: Rewrote `get_group_names()`,  was broken (wrong payload + wrong parser), now delegates to `_fetch_inbox()` + `_parse_inbox()`
+- `core/api.py`: Rewrote `get_group_names()` — was broken (wrong payload + wrong parser), now delegates to `_fetch_inbox()` + `_parse_inbox()`
 - `client.py`: `_dispatch()` now calls `_store_msg()` to persist messages as they arrive
-- `client.py`: `get_group_name()`,  no longer stays stuck on loaded=True if the result was empty; retries on next message
+- `client.py`: `get_group_name()` — no longer stays stuck on loaded=True if the result was empty; retries on next message
 - `client.py`: `send_message()` now logs sent messages
-- `client.py`: `_parse()`,  now also extracts `sticker_url`, `quoted_sticker_url`, `quoted_sticker_id`
-- `plugins/videodl.py`: Added group chat support,  retrieves quoted video from message cache
+- `client.py`: `_parse()` — now also extracts `sticker_url`, `quoted_sticker_url`, `quoted_sticker_id`
+- `plugins/videodl.py`: Added group chat support — retrieves quoted video from message cache
+
+### Fixed
+- `qrlogin.py`: login used to hang after verifying the 2FA code because `check_qrconnect` wasn't sending cookies and tickets TikTok expects by then
+- `core/signer_client.py`: fixed wrong signing constants that made TikTok silently reject the 2FA code request
+- `qrlogin.py`: a failed 2FA attempt no longer regenerates the QR instantly and keeps retrying with the same fingerprint, it just stops and asks to wait
+- `core/api.py`: `get_item_detail()` and `get_music_detail()` were broken, both depended on an external `ttsigner` folder that doesn't exist in this repo; now sign with `core/signer_client.py` like everything else
+- `client.py`: `_sent_echo` (tracks your own sent messages) was never cleaned up and grew forever; now capped at 1000 like the message DB
 
 
 
@@ -58,7 +62,7 @@ When will I fully add the API? My rooted phone was stolen. Once I buy a new one,
 - List conversations, filter groups or private chats
 - Auto re-login with QR when session expires
 - Plugin system with hot-reload - just edit the file, no restart needed
-- QR login, no password needed
+- QR login, no password needed — handles 2FA/identity verification (email or phone code) automatically if TikTok asks for it
 
 ---
 
@@ -93,7 +97,7 @@ lttk/
 
 - Python 3.10+
 - A signing service running at the URL set in `core/signer_client.py`
-- `pycryptodome`,  only needed if you use the `browser` cookie import feature
+- `pycryptodome` — only needed if you use the `browser` cookie import feature
 
 ```bash
 pip install -r requirements.txt
