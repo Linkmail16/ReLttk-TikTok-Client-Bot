@@ -1,6 +1,8 @@
 import http.cookiejar
 import json
 import os
+import random
+import string
 import sys
 import threading
 import time
@@ -15,20 +17,34 @@ import urllib.parse
 import urllib.request
 
 
-                                                                               
+class _TwoFAFailed(Exception):
+    pass
+
+
+def _gen_verify_fp() -> str:
+    def seg(n):
+        return "".join(random.choices(string.ascii_letters + string.digits, k=n))
+    return f"verify_{seg(8)}_{seg(8)}_{seg(4)}_{seg(4)}_{seg(4)}_{seg(12)}"
+
+
+
 _AID       = "1459"
 _UA        = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
-_VERIFY_FP = "verify_mplnlgno_s07vIKFn_2ii8_43lR_800G_hibLVGVaQnut"
+_VERIFY_FP = _gen_verify_fp()
 _REGION    = "CO"
 _LANG      = "es-419"
 
 _SESSION_DIR    = os.path.join(os.path.dirname(__file__), "sesion")
 _SEED_MS_TOKEN  = "n8VdIat8AnERg_j9aNTiWJAHodoWYeC4bFBiz8RqtURuz_RdFacc_r5w85R1o2oGXsqaWRvXDZkdq6u4ywHT8DMXuJ5XapDs70Tjl_Fz-rnvfNEUDfvlJglps5crqgNnRtxhw4Ez"
 
+_X_MSSDK_INFO = (
+    "6RS5jcr8H1p2U88fAP6qdtyxugcCwojZasVZpsm8R6hfT.cuZpdWxgjWeBlYW1158N1b2XgdCeI-8wlueeFxhibS.bM6YzULZvif1N-OLWaIMDT.zHb2ACxf4sul8YW6cA-UsCsM78sIOi477HaCVvW94Fizl2VPCDvB.9D33rsTYhFPB1vz059XYpnPHz1neIuEe-zi.ElxvyHVZX7hPZpqny3Wh1GIHKy15x.YUmwPQwepc3Mdad8NgFxNYIk04r4sHhCDFKiHcQQi-Iw1ukcanlXT5OZH5Iz8aW1xBSRtfNocOrCe4vZmV1AZMpMqPa0rNijrj-3HGJWq7CdyzgKolf4nN3LjbOCat.RLNSgGS079yLxEJ5homy5J-jhswBmkwlKKknz3lGd46BO.pDZqVILfF13njnnsu550COo4lz.lmr9DOuWIVIBeb8xuQRJqfwYO.WRHi4I-UJ-8dCPicngGAFyrzkJ7dKX-VIRVGstKE07VcjZZ-1XLsZaxiOF9jL-cu6bqZyW32mtRGYd0gtmcMGY-Pq7AF292e4St0d4BkkY8iZTBbKd.dflYfbgThmrg5YvUqDnz6PwtVs7cXG3SNYW8fVVd9dSh5XdAMVZLyzNnDKr2-OmgLyJVAVsz7vlGAPSbXSZiLCxCwsfPKkDJJJd1pCNKXexWDoeViVWYHxaqAOQXZK16DTloF5fc2WwxWT5dzBJwScPUhW.6q4mAZwL3TBv09ztVETJCGWaFg8kY2lE1fFZvIZTgLsyw7a-aLas4PBsGwnF.SJvGyCjsZsznU9x5Gq8RpmNLMXZtY4zvs7g88lngZNe8ZrPGfJcvFdsZRaNikWxBgqGhyddBHe6DqavvsEOnYp9IJwnTX3oaw3j6AeiwLcAbD9Sp3lwzVZrvUGUSJqFjTIW76.Ww3HeJEogBh8WGg9trg2OXjnSxhoDFeHwr27AtVH9BtdfjOUpV9qZJdm2qE0Sh0RnNEa4NcqVuGPdyUXAShVKjgK7huXFNZy0mAE8yHlmVdDBHfCTlGrlyjgtjKbOMEtmzDDtld4rFzG3tWSPs-7MSDxz2tYgeOMCb-qzC3rE5eEh5AcTsgbFBmcYd.LjI5yXv9O5ugUv2LZSFeFCMmNzwYZ1IstpE18Ibfqa2ltbQZj56rOSJAHp6IEnFrjljrz7xZunHMW0FlBWF2SE110Tt0Sofnutv2Mwjzh8hFqishjEm-di8WVZI9WATr1BAAEZgsCXy5u6uRdnoDCl.3DD6Z8Gp5OxGL4m4ovtXy4rXO-Z0Qu4nCNHIeTlQq.i9VeJ-AfeGrBLluqe1duaF95f1hNUwGeZKCFqP3j1e1qqLxCsbsO5UfSbdTuRY.sSciidTY-Vu4-H.p4DmElgFmDp.5-sQV1sWWDNaaPIPGOIE7XTYC2MeeQrawhrk94AppKJxvnegNSIEC-F.yp0wQd7Y.pai6KSV4rLfzNM-6MKnaGk9iljsTZngqeLNHIydh2-Q0Pfz6ErQzgWp5aWhhTjU4TAWcu6lfKVuLSRXnaowhcsx9DB7deLyNs.FVOx1K07vYkzwcrvqBbgJytcvqdaGaS5n-c3pj5ezRZ5gR2t.-cqBNuY1EvNelHiXmC.Au5x2FoD2ObRYqKkf5N.vsXWdNsZl-2vHW61H859zdMdEbJ7dsItaJJdFhHY3T9SvUH17MWeq1VtkKKQ6EnqCt0DnnSYUhgYqbVD-WBgDQj-564sDybz2f-xHCgfUSo83uNWubdBCr-cQikyFY.q6wyy5u07DGqJGMdlS9EhREDUZ1Ldb00l1pRY9J8gWkYcTk-sStLeUkvq13fn63yxshT6JHHnby3Y6DeNjITZmpJ-W6BjFunraxcmne67sk1tF7ZPSBhnJAL6sJmrw2x.68foHiG9vW6lUuvESCrDpGVQH3kDUngEeVwvqsYhoclDW6IlPVn2QD1KJJ.4mSDC5qxoAB8RwAqTuedy0c2xzBWEGaVQwGkWr11uulv2M0l6pa01cLJKxBvhbdYdbPvFZZ5sYIqz6K6XOSUpAQ4nlzfFP8k-icXuvuYlWhSl5Wo2zmrFMNRoUIMe6R7qD4YCQbn5dGevUY-TESkJOnZ4rvQLzh188R4kaLDyb1SW.xmLoeuMfjNbWN2LLjmHa36GQYEqMqWfrCbC1x-PRWEw0eVNmqNOFrpIQY20U5XbzvyhclJdoHMm.v-2YwDVGa-OlETHrtxx-Rwsvm9S6o-eu9ukknucfARt1TUeJn6eZ9WuuCZ-IqFwEJzB7BmL6CvWyCJFkeqUVvoMuHmZtXXmTY7LYqpoE1fHLfIMbtfzTzQeXOr6K5MsjzwUaszROpy9yUp8LwZ77iVeY7hs9mYQ.tiH4m-asSQG5HssKkbMoisKLwvHUr.nALH5i-5t9gcAec2sO5wiyupIkm5mxNMNBonuUMUq.NccklU4JeqNJSWI7y8niDp43U5H1lUpbwsFot59hEwDhOtGX81J-4a9y4fV.wtfdJN2rV2MRMrgxX..qWX231tphH9Oy-YNyshbd5B.AKBzEC1E3Nwit9-QrWFvMrSOKnBUpDfpRMe9boI-JP5TFXjqtppi6K3-x2V6qVYYiD9A0Lgyn-T.R07DR4363vd8lrd9v6gyfsrGeomMtnwzE6DQKI3cJwcxAAMHsYbSkqI-g1DFdI43RkpwoSLDWd1c9PK8573Y8hbigYmnC7b9WA.lNbpqNQEm8YPNJEgaArZ.XGt3mZrWB2hIqXDh993pglilE1bAK7YhwbRMWFzfjYlW30j6gvj-iPMxPwyWrLpb3XJJI8ljPNs33yej39b4bdoNsmwz97rxwWmTIrTNKa0l2lUgBkyHERug5DKlRR.7kf5bUQwvtEZAAB8GkUtLS5YZ0Oo6eht.95toiYnCGgGcfiWLma6-WHf-GKs0cfFx5FmNUKryyUG-68aVJz495KfOkyHlFHM9DEZEHVbGuz3mPA9pCnyJNXAcLsI-3YT9mGC9NMeEx.rt2PZmVT5jabpkL1Ln9UQllIslJP5Y8cM7bpmEG960neT-rCcG74Rn0avZaLZXw1H2AcVEfe62ZXs63FLHF-zm4eesHQgaGUNyzM.d.F2FWrEGRWvtwpe5i-q1fS87S4nSuPG-b0XlxJ65O6c1xC5ba8krUwPt3zuu1ed7h5GM4lRABWpK3T5b894qvWwa8XPXjIVanZb10ne8-z7PFmaSScVO1qSGvzLg.Pmdr1brYKTltBJ20Ijph9ZKwwK.IGpfX.0Xn5lOrlwrMFf9SDrX9JLJsYyPhMrZsox8JhZJG1FN7nijIy0H2RguJZX7vg5cuSOxi3dZEtA0HusAcbGM6-P8NAF1lh4YiZZKbPyJaaKD2q-KtOBoh.xWDFAT9krBdHkVeWZYjHLeaM1uCPwx1uF.iFpAfC0NuKcKhrJIm-QPzRTGjDLaMqvSuuhCY3RDLE75SmwlCoMeX4gO5tgcO6c7Wrw-FGC6pJMzixSLwRUkCdy52N5Dedse2iQo8qH0N8wV1leUC.T2mjWscV5-LoLy1.nr7LobAl2CQcMHbA8cUVqzHipczyxBu8DiwPh3dMSSoduTmxCkkzH97kw62gwMhNsaUv6ssQQwC7X4lmkZMPWdA5slIu49QXL2F3jYDA5IUYHX14puF-ZhNZe9LS17V30OKm3SGd6Zi0kvOK1JuJbWFjC7CwWuetbdnut1VhbBkw0B2VT8sBNIxezApqRpfjhvN4mvILcDvMuUq4l.plJI="
+)
+
 _SHARK_EXTRA_TMPL = (
     '{{"aid":{aid},"app_name":"Tik_Tok_Login","channel":"tiktok_web",'
     '"device_platform":"web_pc","device_id":"{did}","region":"{region}",'
-    '"priority_region":"","os":"windows","referer":"","cookie_enabled":true,'
+    '"priority_region":"","os":"windows","referer":"","root_referer":"","cookie_enabled":true,'
     '"screen_width":1680,"screen_height":1050,"browser_language":"{lang}",'
     '"browser_platform":"Win32","browser_name":"Mozilla",'
     '"browser_version":"5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",'
@@ -39,11 +55,11 @@ _SHARK_EXTRA_TMPL = (
 )
 
 
-def _sign(query: str) -> str:
+def _sign(query: str, body: str = "") -> str:
     from importlib import import_module
     sign_full = import_module(f"{_pkg_name()}.core.signer_client").sign_full
     qs = query.rstrip("&").removesuffix("msToken=").rstrip("&")
-    signed, x_gnarly = sign_full(qs, ua=_UA)
+    signed, x_gnarly = sign_full(qs, body=body, ua=_UA)
     return f"{signed}&X-Gnarly={urllib.parse.quote(x_gnarly, safe='')}"
 
 
@@ -224,7 +240,15 @@ def run(did: str | None = None):
     _stop_event.clear()
 
     while not _stop_event.is_set():
-        cookies = _try_login(did)
+        try:
+            cookies = _try_login(did)
+        except _TwoFAFailed:
+            _log.error(
+                "qrlogin",
+                "2FA fallo (codigo incorrecto o limite de intentos de TikTok); "
+                "deten el bot un rato antes de reintentar para no seguir bloqueando la cuenta."
+            )
+            return
         if cookies is not None:
             break
         if not _stop_event.is_set():
@@ -256,35 +280,71 @@ def run(did: str | None = None):
     _log.ok("qrlogin", f"sesion guardada: {path}")
 
 
-def _handle_2fa(opener, passport_ticket: str) -> bool:
-    base = (
-        f"aid={_AID}"
-        f"&pseudo_id=PID00000000000000000"
-        f"&passport_ticket={urllib.parse.quote(passport_ticket)}"
-        f"&mix_mode=0"
-        f"&fixed_mix_mode=0"
+def _set_cookie(jar: http.cookiejar.CookieJar, name: str, value: str):
+    jar.set_cookie(http.cookiejar.Cookie(
+        0, name, value,
+        None, False,
+        ".tiktok.com", True, True,
+        "/", True,
+        True, None, True,
+        None, None, {},
+    ))
+
+
+def _handle_2fa(opener, passport_ticket: str, did: str, pseudo_id: str, ms_token: str) -> bool:
+    lang = _LANG.split("-")[0]
+    query = (
+        f"verifyFp={_VERIFY_FP}"
+        f"&locale={lang}"
+        f"&app_language={lang}"
+        f"&shark_extra={_shark_extra(did)}"
     )
-    url = f"https://web-sg.tiktok.com/passport/aaas/authenticate/"
+
     csrf = ""
     for h in opener.handlers:
         if hasattr(h, "cookiejar"):
             csrf = next((c.value for c in h.cookiejar if c.name == "tt_csrf_token"), "")
+            _set_cookie(h.cookiejar, "s_v_web_id", _VERIFY_FP)
+            if ms_token:
+                _set_cookie(h.cookiejar, "msToken", ms_token)
             break
 
-    def _post(extra: str):
-        body = (base + "&" + extra).encode()
-        req = urllib.request.Request(url, data=body, method="POST", headers={
-            "User-Agent":    _UA,
-            "Content-Type":  "application/x-www-form-urlencoded",
-            "Referer":       "https://www.tiktok.com/login/qrcode",
-            "Accept":        "application/json, text/javascript",
+    def _post(body: str):
+        signed = _sign(query, body=body)
+        url = f"https://web-sg.tiktok.com/passport/aaas/authenticate/?{signed}"
+        req = urllib.request.Request(url, data=body.encode(), method="POST", headers={
+            "User-Agent":       _UA,
+            "Content-Type":     "application/x-www-form-urlencoded",
+            "Origin":           "https://www.tiktok.com",
+            "Referer":          "https://www.tiktok.com/",
+            "Accept":           "application/json, text/javascript",
+            "Accept-Language":  "es-419,es;q=0.9,en-US;q=0.8,en;q=0.7",
+            "sec-ch-ua":        '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "sec-fetch-dest":   "empty",
+            "sec-fetch-mode":   "cors",
+            "sec-fetch-site":   "same-site",
+            "x-mssdk-info":     _X_MSSDK_INFO,
             "x-tt-passport-csrf-token": csrf,
         })
-        with opener.open(req, timeout=15) as resp:
-            return json.loads(resp.read())
+        try:
+            with opener.open(req, timeout=15) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            return json.loads(e.read())
 
+    body3 = (
+        f"mix_mode=0"
+        f"&pseudo_id={pseudo_id}"
+        f"&challenge_type=2"
+        f"&action=3"
+        f"&passport_ticket={urllib.parse.quote(passport_ticket)}"
+        f"&aid={_AID}"
+        f"&fixed_mix_mode=0"
+    )
     try:
-        r = _post("challenge_type=2&action=3")
+        r = _post(body3)
         if r.get("message") != "success":
             _log.error("qrlogin", f"2FA: error enviando código: {r}")
             return False
@@ -298,9 +358,19 @@ def _handle_2fa(opener, passport_ticket: str) -> bool:
         _log.error("qrlogin", "2FA: código vacío, cancelando")
         return False
 
-    hex_code = code.encode().hex()
+    hex_code = "".join(format(b ^ 5, "x") for b in code.encode("utf-8"))
+    body4 = (
+        f"mix_mode=1"
+        f"&code={hex_code}"
+        f"&pseudo_id={pseudo_id}"
+        f"&challenge_type=2"
+        f"&action=4"
+        f"&passport_ticket={urllib.parse.quote(passport_ticket)}"
+        f"&aid={_AID}"
+        f"&fixed_mix_mode=1"
+    )
     try:
-        r = _post(f"challenge_type=2&action=4&mix_mode=1&fixed_mix_mode=1&code={urllib.parse.quote(hex_code)}")
+        r = _post(body4)
         if r.get("message") != "success":
             _log.error("qrlogin", f"2FA: código incorrecto: {r}")
             return False
@@ -352,7 +422,7 @@ def _try_login(did: str) -> dict | None:
     'tt-ticket-guard-public-key': 'BMfZl+/keYLdE+lGmdH2V5xBmDxCWi6+lFeuJstXEoPl4z3HmiUGTI6FHz+FeeI6t3ECvg+mzHxgnYTCpeg6uFU=',
     'tt-ticket-guard-version': '2',
     'tt-ticket-guard-web-version': '1',
-    'x-mssdk-info': '6RS5jcr8H1p2U88fAP6qdtyxugcCwojZasVZpsm8R6hfT.cuZpdWxgjWeBlYW1158N1b2XgdCeI-8wlueeFxhibS.bM6YzULZvif1N-OLWaIMDT.zHb2ACxf4sul8YW6cA-UsCsM78sIOi477HaCVvW94Fizl2VPCDvB.9D33rsTYhFPB1vz059XYpnPHz1neIuEe-zi.ElxvyHVZX7hPZpqny3Wh1GIHKy15x.YUmwPQwepc3Mdad8NgFxNYIk04r4sHhCDFKiHcQQi-Iw1ukcanlXT5OZH5Iz8aW1xBSRtfNocOrCe4vZmV1AZMpMqPa0rNijrj-3HGJWq7CdyzgKolf4nN3LjbOCat.RLNSgGS079yLxEJ5homy5J-jhswBmkwlKKknz3lGd46BO.pDZqVILfF13njnnsu550COo4lz.lmr9DOuWIVIBeb8xuQRJqfwYO.WRHi4I-UJ-8dCPicngGAFyrzkJ7dKX-VIRVGstKE07VcjZZ-1XLsZaxiOF9jL-cu6bqZyW32mtRGYd0gtmcMGY-Pq7AF292e4St0d4BkkY8iZTBbKd.dflYfbgThmrg5YvUqDnz6PwtVs7cXG3SNYW8fVVd9dSh5XdAMVZLyzNnDKr2-OmgLyJVAVsz7vlGAPSbXSZiLCxCwsfPKkDJJJd1pCNKXexWDoeViVWYHxaqAOQXZK16DTloF5fc2WwxWT5dzBJwScPUhW.6q4mAZwL3TBv09ztVETJCGWaFg8kY2lE1fFZvIZTgLsyw7a-aLas4PBsGwnF.SJvGyCjsZsznU9x5Gq8RpmNLMXZtY4zvs7g88lngZNe8ZrPGfJcvFdsZRaNikWxBgqGhyddBHe6DqavvsEOnYp9IJwnTX3oaw3j6AeiwLcAbD9Sp3lwzVZrvUGUSJqFjTIW76.Ww3HeJEogBh8WGg9trg2OXjnSxhoDFeHwr27AtVH9BtdfjOUpV9qZJdm2qE0Sh0RnNEa4NcqVuGPdyUXAShVKjgK7huXFNZy0mAE8yHlmVdDBHfCTlGrlyjgtjKbOMEtmzDDtld4rFzG3tWSPs-7MSDxz2tYgeOMCb-qzC3rE5eEh5AcTsgbFBmcYd.LjI5yXv9O5ugUv2LZSFeFCMmNzwYZ1IstpE18Ibfqa2ltbQZj56rOSJAHp6IEnFrjljrz7xZunHMW0FlBWF2SE110Tt0Sofnutv2Mwjzh8hFqishjEm-di8WVZI9WATr1BAAEZgsCXy5u6uRdnoDCl.3DD6Z8Gp5OxGL4m4ovtXy4rXO-Z0Qu4nCNHIeTlQq.i9VeJ-AfeGrBLluqe1duaF95f1hNUwGeZKCFqP3j1e1qqLxCsbsO5UfSbdTuRY.sSciidTY-Vu4-H.p4DmElgFmDp.5-sQV1sWWDNaaPIPGOIE7XTYC2MeeQrawhrk94AppKJxvnegNSIEC-F.yp0wQd7Y.pai6KSV4rLfzNM-6MKnaGk9iljsTZngqeLNHIydh2-Q0Pfz6ErQzgWp5aWhhTjU4TAWcu6lfKVuLSRXnaowhcsx9DB7deLyNs.FVOx1K07vYkzwcrvqBbgJytcvqdaGaS5n-c3pj5ezRZ5gR2t.-cqBNuY1EvNelHiXmC.Au5x2FoD2ObRYqKkf5N.vsXWdNsZl-2vHW61H859zdMdEbJ7dsItaJJdFhHY3T9SvUH17MWeq1VtkKKQ6EnqCt0DnnSYUhgYqbVD-WBgDQj-564sDybz2f-xHCgfUSo83uNWubdBCr-cQikyFY.q6wyy5u07DGqJGMdlS9EhREDUZ1Ldb00l1pRY9J8gWkYcTk-sStLeUkvq13fn63yxshT6JHHnby3Y6DeNjITZmpJ-W6BjFunraxcmne67sk1tF7ZPSBhnJAL6sJmrw2x.68foHiG9vW6lUuvESCrDpGVQH3kDUngEeVwvqsYhoclDW6IlPVn2QD1KJJ.4mSDC5qxoAB8RwAqTuedy0c2xzBWEGaVQwGkWr11uulv2M0l6pa01cLJKxBvhbdYdbPvFZZ5sYIqz6K6XOSUpAQ4nlzfFP8k-icXuvuYlWhSl5Wo2zmrFMNRoUIMe6R7qD4YCQbn5dGevUY-TESkJOnZ4rvQLzh188R4kaLDyb1SW.xmLoeuMfjNbWN2LLjmHa36GQYEqMqWfrCbC1x-PRWEw0eVNmqNOFrpIQY20U5XbzvyhclJdoHMm.v-2YwDVGa-OlETHrtxx-Rwsvm9S6o-eu9ukknucfARt1TUeJn6eZ9WuuCZ-IqFwEJzB7BmL6CvWyCJFkeqUVvoMuHmZtXXmTY7LYqpoE1fHLfIMbtfzTzQeXOr6K5MsjzwUaszROpy9yUp8LwZ77iVeY7hs9mYQ.tiH4m-asSQG5HssKkbMoisKLwvHUr.nALH5i-5t9gcAec2sO5wiyupIkm5mxNMNBonuUMUq.NccklU4JeqNJSWI7y8niDp43U5H1lUpbwsFot59hEwDhOtGX81J-4a9y4fV.wtfdJN2rV2MRMrgxX..qWX231tphH9Oy-YNyshbd5B.AKBzEC1E3Nwit9-QrWFvMrSOKnBUpDfpRMe9boI-JP5TFXjqtppi6K3-x2V6qVYYiD9A0Lgyn-T.R07DR4363vd8lrd9v6gyfsrGeomMtnwzE6DQKI3cJwcxAAMHsYbSkqI-g1DFdI43RkpwoSLDWd1c9PK8573Y8hbigYmnC7b9WA.lNbpqNQEm8YPNJEgaArZ.XGt3mZrWB2hIqXDh993pglilE1bAK7YhwbRMWFzfjYlW30j6gvj-iPMxPwyWrLpb3XJJI8ljPNs33yej39b4bdoNsmwz97rxwWmTIrTNKa0l2lUgBkyHERug5DKlRR.7kf5bUQwvtEZAAB8GkUtLS5YZ0Oo6eht.95toiYnCGgGcfiWLma6-WHf-GKs0cfFx5FmNUKryyUG-68aVJz495KfOkyHlFHM9DEZEHVbGuz3mPA9pCnyJNXAcLsI-3YT9mGC9NMeEx.rt2PZmVT5jabpkL1Ln9UQllIslJP5Y8cM7bpmEG960neT-rCcG74Rn0avZaLZXw1H2AcVEfe62ZXs63FLHF-zm4eesHQgaGUNyzM.d.F2FWrEGRWvtwpe5i-q1fS87S4nSuPG-b0XlxJ65O6c1xC5ba8krUwPt3zuu1ed7h5GM4lRABWpK3T5b894qvWwa8XPXjIVanZb10ne8-z7PFmaSScVO1qSGvzLg.Pmdr1brYKTltBJ20Ijph9ZKwwK.IGpfX.0Xn5lOrlwrMFf9SDrX9JLJsYyPhMrZsox8JhZJG1FN7nijIy0H2RguJZX7vg5cuSOxi3dZEtA0HusAcbGM6-P8NAF1lh4YiZZKbPyJaaKD2q-KtOBoh.xWDFAT9krBdHkVeWZYjHLeaM1uCPwx1uF.iFpAfC0NuKcKhrJIm-QPzRTGjDLaMqvSuuhCY3RDLE75SmwlCoMeX4gO5tgcO6c7Wrw-FGC6pJMzixSLwRUkCdy52N5Dedse2iQo8qH0N8wV1leUC.T2mjWscV5-LoLy1.nr7LobAl2CQcMHbA8cUVqzHipczyxBu8DiwPh3dMSSoduTmxCkkzH97kw62gwMhNsaUv6ssQQwC7X4lmkZMPWdA5slIu49QXL2F3jYDA5IUYHX14puF-ZhNZe9LS17V30OKm3SGd6Zi0kvOK1JuJbWFjC7CwWuetbdnut1VhbBkw0B2VT8sBNIxezApqRpfjhvN4mvILcDvMuUq4l.plJI=',
+    'x-mssdk-info': _X_MSSDK_INFO,
     'x-tt-passport-csrf-token': '',
             })
             with opener.open(req, timeout=10) as resp:
@@ -368,6 +438,8 @@ def _try_login(did: str) -> dict | None:
 
     token = data["data"]["token"]
     index_url = data["data"]["qrcode_index_url"]
+    ttwid_ticket = data["data"].get("ttwid_migration_ticket", "")
+    passport_ticket_for_poll = ""
 
                     
     try:
@@ -388,9 +460,15 @@ def _try_login(did: str) -> dict | None:
     try:
         while not _stop_event.is_set():
             query = f"{_base_params(did)}&token={urllib.parse.quote(token)}"
+            if passport_ticket_for_poll:
+                query += f"&passport_ticket={urllib.parse.quote(passport_ticket_for_poll)}"
             signed = _sign(query)
             url = f"https://web-sg.tiktok.com/passport/web/check_qrconnect/?{signed}"
-            req = urllib.request.Request(url, headers={
+            cookie_parts = [f"{c.name}={c.value}" for c in jar if c.name != "msToken"]
+            cookie_parts.append(f"msToken={ms_token}")
+            cookie_hdr = "; ".join(cookie_parts)
+            csrf_for_poll = next((c.value for c in jar if c.name == "tt_csrf_token"), "")
+            poll_headers = {
                 "User-Agent": _UA,
                 'accept': 'application/json, text/javascript',
     'accept-language': 'es-US,es-419;q=0.9,es;q=0.8',
@@ -406,10 +484,14 @@ def _try_login(did: str) -> dict | None:
     'tt-ticket-guard-public-key': 'BMfZl+/keYLdE+lGmdH2V5xBmDxCWi6+lFeuJstXEoPl4z3HmiUGTI6FHz+FeeI6t3ECvg+mzHxgnYTCpeg6uFU=',
     'tt-ticket-guard-version': '2',
     'tt-ticket-guard-web-version': '1',
-    'x-mssdk-info': '6RS5jcr8H1p2U88fAP6qdtyxugcCwojZasVZpsm8R6hfT.cuZpdWxgjWeBlYW1158N1b2XgdCeI-8wlueeFxhibS.bM6YzULZvif1N-OLWaIMDT.zHb2ACxf4sul8YW6cA-UsCsM78sIOi477HaCVvW94Fizl2VPCDvB.9D33rsTYhFPB1vz059XYpnPHz1neIuEe-zi.ElxvyHVZX7hPZpqny3Wh1GIHKy15x.YUmwPQwepc3Mdad8NgFxNYIk04r4sHhCDFKiHcQQi-Iw1ukcanlXT5OZH5Iz8aW1xBSRtfNocOrCe4vZmV1AZMpMqPa0rNijrj-3HGJWq7CdyzgKolf4nN3LjbOCat.RLNSgGS079yLxEJ5homy5J-jhswBmkwlKKknz3lGd46BO.pDZqVILfF13njnnsu550COo4lz.lmr9DOuWIVIBeb8xuQRJqfwYO.WRHi4I-UJ-8dCPicngGAFyrzkJ7dKX-VIRVGstKE07VcjZZ-1XLsZaxiOF9jL-cu6bqZyW32mtRGYd0gtmcMGY-Pq7AF292e4St0d4BkkY8iZTBbKd.dflYfbgThmrg5YvUqDnz6PwtVs7cXG3SNYW8fVVd9dSh5XdAMVZLyzNnDKr2-OmgLyJVAVsz7vlGAPSbXSZiLCxCwsfPKkDJJJd1pCNKXexWDoeViVWYHxaqAOQXZK16DTloF5fc2WwxWT5dzBJwScPUhW.6q4mAZwL3TBv09ztVETJCGWaFg8kY2lE1fFZvIZTgLsyw7a-aLas4PBsGwnF.SJvGyCjsZsznU9x5Gq8RpmNLMXZtY4zvs7g88lngZNe8ZrPGfJcvFdsZRaNikWxBgqGhyddBHe6DqavvsEOnYp9IJwnTX3oaw3j6AeiwLcAbD9Sp3lwzVZrvUGUSJqFjTIW76.Ww3HeJEogBh8WGg9trg2OXjnSxhoDFeHwr27AtVH9BtdfjOUpV9qZJdm2qE0Sh0RnNEa4NcqVuGPdyUXAShVKjgK7huXFNZy0mAE8yHlmVdDBHfCTlGrlyjgtjKbOMEtmzDDtld4rFzG3tWSPs-7MSDxz2tYgeOMCb-qzC3rE5eEh5AcTsgbFBmcYd.LjI5yXv9O5ugUv2LZSFeFCMmNzwYZ1IstpE18Ibfqa2ltbQZj56rOSJAHp6IEnFrjljrz7xZunHMW0FlBWF2SE110Tt0Sofnutv2Mwjzh8hFqishjEm-di8WVZI9WATr1BAAEZgsCXy5u6uRdnoDCl.3DD6Z8Gp5OxGL4m4ovtXy4rXO-Z0Qu4nCNHIeTlQq.i9VeJ-AfeGrBLluqe1duaF95f1hNUwGeZKCFqP3j1e1qqLxCsbsO5UfSbdTuRY.sSciidTY-Vu4-H.p4DmElgFmDp.5-sQV1sWWDNaaPIPGOIE7XTYC2MeeQrawhrk94AppKJxvnegNSIEC-F.yp0wQd7Y.pai6KSV4rLfzNM-6MKnaGk9iljsTZngqeLNHIydh2-Q0Pfz6ErQzgWp5aWhhTjU4TAWcu6lfKVuLSRXnaowhcsx9DB7deLyNs.FVOx1K07vYkzwcrvqBbgJytcvqdaGaS5n-c3pj5ezRZ5gR2t.-cqBNuY1EvNelHiXmC.Au5x2FoD2ObRYqKkf5N.vsXWdNsZl-2vHW61H859zdMdEbJ7dsItaJJdFhHY3T9SvUH17MWeq1VtkKKQ6EnqCt0DnnSYUhgYqbVD-WBgDQj-564sDybz2f-xHCgfUSo83uNWubdBCr-cQikyFY.q6wyy5u07DGqJGMdlS9EhREDUZ1Ldb00l1pRY9J8gWkYcTk-sStLeUkvq13fn63yxshT6JHHnby3Y6DeNjITZmpJ-W6BjFunraxcmne67sk1tF7ZPSBhnJAL6sJmrw2x.68foHiG9vW6lUuvESCrDpGVQH3kDUngEeVwvqsYhoclDW6IlPVn2QD1KJJ.4mSDC5qxoAB8RwAqTuedy0c2xzBWEGaVQwGkWr11uulv2M0l6pa01cLJKxBvhbdYdbPvFZZ5sYIqz6K6XOSUpAQ4nlzfFP8k-icXuvuYlWhSl5Wo2zmrFMNRoUIMe6R7qD4YCQbn5dGevUY-TESkJOnZ4rvQLzh188R4kaLDyb1SW.xmLoeuMfjNbWN2LLjmHa36GQYEqMqWfrCbC1x-PRWEw0eVNmqNOFrpIQY20U5XbzvyhclJdoHMm.v-2YwDVGa-OlETHrtxx-Rwsvm9S6o-eu9ukknucfARt1TUeJn6eZ9WuuCZ-IqFwEJzB7BmL6CvWyCJFkeqUVvoMuHmZtXXmTY7LYqpoE1fHLfIMbtfzTzQeXOr6K5MsjzwUaszROpy9yUp8LwZ77iVeY7hs9mYQ.tiH4m-asSQG5HssKkbMoisKLwvHUr.nALH5i-5t9gcAec2sO5wiyupIkm5mxNMNBonuUMUq.NccklU4JeqNJSWI7y8niDp43U5H1lUpbwsFot59hEwDhOtGX81J-4a9y4fV.wtfdJN2rV2MRMrgxX..qWX231tphH9Oy-YNyshbd5B.AKBzEC1E3Nwit9-QrWFvMrSOKnBUpDfpRMe9boI-JP5TFXjqtppi6K3-x2V6qVYYiD9A0Lgyn-T.R07DR4363vd8lrd9v6gyfsrGeomMtnwzE6DQKI3cJwcxAAMHsYbSkqI-g1DFdI43RkpwoSLDWd1c9PK8573Y8hbigYmnC7b9WA.lNbpqNQEm8YPNJEgaArZ.XGt3mZrWB2hIqXDh993pglilE1bAK7YhwbRMWFzfjYlW30j6gvj-iPMxPwyWrLpb3XJJI8ljPNs33yej39b4bdoNsmwz97rxwWmTIrTNKa0l2lUgBkyHERug5DKlRR.7kf5bUQwvtEZAAB8GkUtLS5YZ0Oo6eht.95toiYnCGgGcfiWLma6-WHf-GKs0cfFx5FmNUKryyUG-68aVJz495KfOkyHlFHM9DEZEHVbGuz3mPA9pCnyJNXAcLsI-3YT9mGC9NMeEx.rt2PZmVT5jabpkL1Ln9UQllIslJP5Y8cM7bpmEG960neT-rCcG74Rn0avZaLZXw1H2AcVEfe62ZXs63FLHF-zm4eesHQgaGUNyzM.d.F2FWrEGRWvtwpe5i-q1fS87S4nSuPG-b0XlxJ65O6c1xC5ba8krUwPt3zuu1ed7h5GM4lRABWpK3T5b894qvWwa8XPXjIVanZb10ne8-z7PFmaSScVO1qSGvzLg.Pmdr1brYKTltBJ20Ijph9ZKwwK.IGpfX.0Xn5lOrlwrMFf9SDrX9JLJsYyPhMrZsox8JhZJG1FN7nijIy0H2RguJZX7vg5cuSOxi3dZEtA0HusAcbGM6-P8NAF1lh4YiZZKbPyJaaKD2q-KtOBoh.xWDFAT9krBdHkVeWZYjHLeaM1uCPwx1uF.iFpAfC0NuKcKhrJIm-QPzRTGjDLaMqvSuuhCY3RDLE75SmwlCoMeX4gO5tgcO6c7Wrw-FGC6pJMzixSLwRUkCdy52N5Dedse2iQo8qH0N8wV1leUC.T2mjWscV5-LoLy1.nr7LobAl2CQcMHbA8cUVqzHipczyxBu8DiwPh3dMSSoduTmxCkkzH97kw62gwMhNsaUv6ssQQwC7X4lmkZMPWdA5slIu49QXL2F3jYDA5IUYHX14puF-ZhNZe9LS17V30OKm3SGd6Zi0kvOK1JuJbWFjC7CwWuetbdnut1VhbBkw0B2VT8sBNIxezApqRpfjhvN4mvILcDvMuUq4l.plJI=',
-    'x-tt-passport-csrf-token': '',
-                "Cookie":     f"msToken={ms_token}",
-            })
+    'x-mssdk-info': _X_MSSDK_INFO,
+    'x-tt-passport-csrf-token': csrf_for_poll,
+    'x-tt-passport-ttwid-ticket': ttwid_ticket,
+                "Cookie":     cookie_hdr,
+            }
+            if passport_ticket_for_poll:
+                poll_headers['x-tt-passport-ticket'] = passport_ticket_for_poll
+            req = urllib.request.Request(url, headers=poll_headers)
             try:
                 resp = urllib.request.urlopen(req, timeout=10)
                 resp_body = resp.read()
@@ -436,6 +518,7 @@ def _try_login(did: str) -> dict | None:
                 err_code = data.get("data", {}).get("error_code", 0)
                 if err_code == 2135:
                     passport_ticket = ""
+                    pseudo_id = ""
                     for line in str(raw_headers).splitlines():
                         if "x-tt-verify-idv-decision-conf" in line.lower():
                             import json as _json2
@@ -443,16 +526,28 @@ def _try_login(did: str) -> dict | None:
                                 conf_str = line.split(":", 1)[1].strip()
                                 conf = _json2.loads(conf_str)
                                 passport_ticket = conf.get("passport_ticket", "")
+                                extra = conf.get("extra") or []
+                                email_entry = next((x for x in extra if x.get("type") == 2), None)
+                                if email_entry:
+                                    pseudo_id = email_entry.get("pseudo_id", "")
+                                elif extra:
+                                    pseudo_id = extra[0].get("pseudo_id", "")
                             except Exception:
                                 pass
                     if not passport_ticket:
                         _log.error("qrlogin", "2FA requerida pero no se pudo obtener passport_ticket")
                         _stop_event.wait(3)
                         continue
+                    if not pseudo_id:
+                        _log.warn("qrlogin", "2FA: no se pudo obtener pseudo_id, usando valor por defecto")
+                        pseudo_id = "PID00000000000000000"
                     _log.warn("qrlogin", "2FA requerida (verificación de identidad)")
-                    ok = _handle_2fa(opener, passport_ticket)
+                    passport_ticket_for_poll = passport_ticket
+                    _stop_event.wait(random.uniform(1, 2))
+                    ok = _handle_2fa(opener, passport_ticket, did, pseudo_id, ms_token)
                     if not ok:
-                        return None
+                        raise _TwoFAFailed()
+                    ms_token = next((c.value for c in jar if c.name == "msToken"), ms_token)
                     continue
                 _log.error("qrlogin", f"{data.get('data', {}).get('description', data)}, reintentando...")
                 _stop_event.wait(3)
