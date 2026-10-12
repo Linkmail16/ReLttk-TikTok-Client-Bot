@@ -384,6 +384,8 @@ class LttkClient:
         await self.websocket.send(packet)
         _log.info("send", f"[{conv_id}] {text!r}" if text else f"[{conv_id}] <non-text msg_type={msg_type}>")
         self._sent_echo[client_id] = {"conv_id": conv_id, "msg_type": msg_type, "msg_id": 0, "client_id": client_id}
+        while len(self._sent_echo) > 1000:
+            self._sent_echo.pop(next(iter(self._sent_echo)))
         return msg_type, client_id
 
     async def send_video(self, conv_id: str, item_id: str, short_id: int = 1) -> int:
