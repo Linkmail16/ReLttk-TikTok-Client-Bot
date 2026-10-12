@@ -7,10 +7,17 @@ _UA_DEFAULT = (
 )
 
 _SIGN_OPTS = dict(
-    envcode=65, canvas=1555365874, ubcode=14,
-    version='5.3.2', scm_version='1.0.0.417',
-    total_reqs=3, enc_reqs=1,
+    envcode=1, canvas=411533585, ubcode=8,
+    version='5.3.2', scm_version='2.0.0.561',
 )
+
+_req_counter = {"total": 0, "enc": 0}
+
+
+def _next_req_counts() -> tuple[int, int]:
+    _req_counter["total"] += 1
+    _req_counter["enc"] += 1
+    return _req_counter["total"], _req_counter["enc"]
 
 
 def _get_signers():
@@ -25,12 +32,13 @@ def _get_bogus():
 
 
 def sign_full(params: str, body: str = "", ua: str = "") -> tuple[str, str]:
-    """Returns (params_with_dyno_and_bogus, x_gnarly)."""
     _a, _b = _get_signers()
     _ua = ua or _UA_DEFAULT
-    dyno = _a(qs=params, body=body, ua=_ua, **_SIGN_OPTS)
+    total_reqs, enc_reqs = _next_req_counts()
+    opts = dict(_SIGN_OPTS, total_reqs=total_reqs, enc_reqs=enc_reqs)
+    dyno = _a(qs=params, body=body, ua=_ua, **opts)
     gnarly_qs = params + "&msToken=&X-Dynosaur=" + urllib.parse.quote(dyno, safe='') + "&X-Bogus=1"
-    gnarly = _b(qs=gnarly_qs, body=body, ua=_ua, **_SIGN_OPTS)
+    gnarly = _b(qs=gnarly_qs, body=body, ua=_ua, **opts)
     signed = params + "&msToken=&X-Dynosaur=" + urllib.parse.quote(dyno, safe='') + "&X-Bogus=1"
     return signed, gnarly
 
@@ -41,7 +49,9 @@ def sign_bogus(params: str, ua: str = "") -> str:
 
 def sign_gnarly(query_string: str, body: str = "", ua: str = "") -> str:
     _, _b = _get_signers()
-    return _b(qs=query_string, body=body, ua=ua or _UA_DEFAULT, **_SIGN_OPTS)
+    total_reqs, enc_reqs = _next_req_counts()
+    opts = dict(_SIGN_OPTS, total_reqs=total_reqs, enc_reqs=enc_reqs)
+    return _b(qs=query_string, body=body, ua=ua or _UA_DEFAULT, **opts)
 
 
 def sign_ws(stub_hex: str, bogus_index: int = 1) -> str:
