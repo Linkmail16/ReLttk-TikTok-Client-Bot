@@ -83,13 +83,7 @@ def get_fyp_video() -> str:
 
 
 def get_item_detail(item_id: str) -> dict:
-    import sys
-    sys.path.insert(0, os.path.join(os.path.expanduser("~"), "Documents", "ttsigner"))
-    from Web.bogus import Signer
-    from Web.gnarly import get_X_Gnarly
-
-    odin_id = config.COOKIES.get("odin_tt", "")[:19] or config.OWN_USER_ID
-    ms_token = config.COOKIES.get("msToken", "")
+    from .signer_client import sign_full
 
     query = (
         "WebIdLastTime=1777359527&aid=1988"
@@ -109,12 +103,10 @@ def get_item_detail(item_id: str) -> dict:
         "&root_referer=https%3A%2F%2Fwww.tiktok.com%2F"
         "&screen_height=1080&screen_width=1920&tz_name=America%2FBogota"
         "&user_is_login=true&video_encoding=dash&webcast_language=es-419"
-        f"&msToken={urllib.parse.quote(ms_token)}"
     )
 
-    signed_query = Signer.sign(query, _UA)
-    x_gnarly = get_X_Gnarly(query_string=query, request_body="", user_agent=_UA)
-    url = f"https://www.tiktok.com/api/item/detail/?{signed_query}&X-Gnarly={x_gnarly}"
+    signed_query, x_gnarly = sign_full(query, body="", ua=_UA)
+    url = f"https://www.tiktok.com/api/item/detail/?{signed_query}&X-Gnarly={urllib.parse.quote(x_gnarly, safe='')}"
 
     req = urllib.request.Request(url, headers={
         "User-Agent":      _UA,
@@ -280,12 +272,7 @@ def get_group_names(cookies: dict | None = None, device_id: str | None = None) -
 
 
 def get_music_detail(music_id: str) -> dict:
-    import sys
-    sys.path.insert(0, os.path.join(os.path.expanduser("~"), "Documents", "ttsigner"))
-    from Web.bogus import Signer
-    from Web.gnarly import get_X_Gnarly
-
-    ms_token = config.COOKIES.get("msToken", "")
+    from .signer_client import sign_full
 
     query = (
         "WebIdLastTime=1777359527&aid=1988"
@@ -304,12 +291,10 @@ def get_music_detail(music_id: str) -> dict:
         "&root_referer=https%3A%2F%2Fwww.tiktok.com%2F"
         "&screen_height=1080&screen_width=1920&tz_name=America%2FBogota"
         "&user_is_login=true&webcast_language=es-419"
-        f"&msToken={urllib.parse.quote(ms_token)}"
     )
 
-    signed_query = Signer.sign(query, _UA)
-    x_gnarly = get_X_Gnarly(query_string=query, request_body="", user_agent=_UA)
-    url = f"https://www.tiktok.com/api/music/detail/?{signed_query}&X-Gnarly={x_gnarly}"
+    signed_query, x_gnarly = sign_full(query, body="", ua=_UA)
+    url = f"https://www.tiktok.com/api/music/detail/?{signed_query}&X-Gnarly={urllib.parse.quote(x_gnarly, safe='')}"
 
     req = urllib.request.Request(url, headers={
         "User-Agent":      _UA,
