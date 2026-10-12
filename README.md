@@ -14,7 +14,15 @@ When will I fully add the API? My rooted phone was stolen. Once I buy a new one,
 ---
 # Changelog
 
-## [Unreleased]
+12/10/2026
+
+### Fixed
+- `qrlogin.py`: login used to hang after verifying the 2FA code because `check_qrconnect` wasn't sending cookies and tickets TikTok expects by then
+- `core/signer_client.py`: fixed wrong signing constants that made TikTok silently reject the 2FA code request
+- `qrlogin.py`: a failed 2FA attempt no longer regenerates the QR instantly and keeps retrying with the same fingerprint, it just stops and asks to wait
+- `core/api.py`: `get_item_detail()` and `get_music_detail()` were broken, both depended on an external `ttsigner` folder that doesn't exist in this repo; now sign with `core/signer_client.py` like everything else
+- `client.py`: `_sent_echo` (tracks your own sent messages) was never cleaned up and grew forever; now capped at 1000 like the message DB
+
 
 ### Added
 - `qrlogin.py`: 2FA support for QR login, now handles it when TikTok asks to verify your identity
@@ -41,12 +49,6 @@ When will I fully add the API? My rooted phone was stolen. Once I buy a new one,
 - `client.py`: `_parse()` — now also extracts `sticker_url`, `quoted_sticker_url`, `quoted_sticker_id`
 - `plugins/videodl.py`: Added group chat support — retrieves quoted video from message cache
 
-### Fixed
-- `qrlogin.py`: login used to hang after verifying the 2FA code because `check_qrconnect` wasn't sending cookies and tickets TikTok expects by then
-- `core/signer_client.py`: fixed wrong signing constants that made TikTok silently reject the 2FA code request
-- `qrlogin.py`: a failed 2FA attempt no longer regenerates the QR instantly and keeps retrying with the same fingerprint, it just stops and asks to wait
-- `core/api.py`: `get_item_detail()` and `get_music_detail()` were broken, both depended on an external `ttsigner` folder that doesn't exist in this repo; now sign with `core/signer_client.py` like everything else
-- `client.py`: `_sent_echo` (tracks your own sent messages) was never cleaned up and grew forever; now capped at 1000 like the message DB
 
 
 
