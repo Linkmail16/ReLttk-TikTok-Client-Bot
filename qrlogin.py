@@ -34,7 +34,7 @@ _VERIFY_FP = _gen_verify_fp()
 _REGION    = "CO"
 _LANG      = "es-419"
 
-_SESSION_DIR    = os.path.join(os.path.dirname(__file__), "sesion")
+_SESSION_DIR    = os.path.join(os.path.dirname(__file__), "session")
 _SEED_MS_TOKEN  = "n8VdIat8AnERg_j9aNTiWJAHodoWYeC4bFBiz8RqtURuz_RdFacc_r5w85R1o2oGXsqaWRvXDZkdq6u4ywHT8DMXuJ5XapDs70Tjl_Fz-rnvfNEUDfvlJglps5crqgNnRtxhw4Ez"
 
 _X_MSSDK_INFO = (
@@ -135,7 +135,7 @@ def _fetch_ms_token(did: str) -> str:
                         return part[len("msToken="):]
             return ""
         except Exception as e:
-            _log.error("qrlogin", f"store_region intento {attempt + 1}/2 fallo: {e}")
+            _log.error("qrlogin", f"store_region attempt {attempt + 1}/2 failed: {e}")
     return ""
 
 
@@ -175,7 +175,7 @@ def _shorten_url(opener, index_url: str, did: str) -> str:
     with opener.open(req, timeout=10) as resp:
         data = json.loads(resp.read())
     if data.get("code") != 0:
-        raise RuntimeError(f"shorten fallo: {data}")
+        raise RuntimeError(f"shorten failed: {data}")
     entries = data.get("data", [])
     if not entries:
         raise RuntimeError("shorten: respuesta vacia")
@@ -190,7 +190,7 @@ def _print_qr(url: str):
         qr.make(fit=True)
         qr.print_ascii(invert=True)
     except ImportError:
-        _log.warn("qrlogin", "instala qrcode: pip install qrcode")
+        _log.warn("qrlogin", "install qrcode: pip install qrcode")
         _log.info("qrlogin", f"URL: {url}")
 
 
@@ -245,25 +245,25 @@ def run(did: str | None = None):
         except _TwoFAFailed:
             _log.error(
                 "qrlogin",
-                "2FA fallo (codigo incorrecto o limite de intentos de TikTok); "
-                "deten el bot un rato antes de reintentar para no seguir bloqueando la cuenta."
+                "2FA failed (wrong code or TikTok rate limit); "
+                "stop the bot for a while before retrying so you don't keep blocking the account."
             )
             return
         if cookies is not None:
             break
         if not _stop_event.is_set():
-            _log.info("qrlogin", "reiniciando...")
+            _log.info("qrlogin", "restarting...")
 
     if _stop_event.is_set():
         return
 
     sessionid = cookies.get("sessionid", "")
     if not sessionid:
-        _log.warn("qrlogin", "advertencia: no se encontro sessionid")
-        _log.warn("qrlogin", f"cookies recibidas: {list(cookies.keys())}")
+        _log.warn("qrlogin", "warning: sessionid not found")
+        _log.warn("qrlogin", f"cookies received: {list(cookies.keys())}")
         return
 
-    _log.ok("qrlogin", f"sesion obtenida: {sessionid[:8]}...")
+    _log.ok("qrlogin", f"session obtained: {sessionid[:8]}...")
 
     username = f"session_{sessionid[:8]}"
     try:
@@ -274,10 +274,10 @@ def run(did: str | None = None):
         if profiles:
             username = profiles[0].get("unique_id") or username
     except Exception as e:
-        _log.warn("qrlogin", f"no se pudo obtener username ({e}), usando '{username}'")
+        _log.warn("qrlogin", f"couldn't get username ({e}), using '{username}'")
 
     path = _write_cookies(cookies, username)
-    _log.ok("qrlogin", f"sesion guardada: {path}")
+    _log.ok("qrlogin", f"session saved: {path}")
 
 
 def _set_cookie(jar: http.cookiejar.CookieJar, name: str, value: str):
@@ -346,16 +346,16 @@ def _handle_2fa(opener, passport_ticket: str, did: str, pseudo_id: str, ms_token
     try:
         r = _post(body3)
         if r.get("message") != "success":
-            _log.error("qrlogin", f"2FA: error enviando código: {r}")
+            _log.error("qrlogin", f"2FA: error sending code: {r}")
             return False
-        _log.ok("qrlogin", "2FA: código enviado al email/teléfono registrado")
+        _log.ok("qrlogin", "2FA: code sent to the registered email/phone")
     except Exception as e:
-        _log.error("qrlogin", f"2FA: error en action=3: {e}")
+        _log.error("qrlogin", f"2FA: error on action=3: {e}")
         return False
 
-    code = input("[qrlogin] ingresa el código de verificación: ").strip()
+    code = input("[qrlogin] enter the verification code: ").strip()
     if not code:
-        _log.error("qrlogin", "2FA: código vacío, cancelando")
+        _log.error("qrlogin", "2FA: empty code, cancelling")
         return False
 
     hex_code = "".join(format(b ^ 5, "x") for b in code.encode("utf-8"))
@@ -372,12 +372,12 @@ def _handle_2fa(opener, passport_ticket: str, did: str, pseudo_id: str, ms_token
     try:
         r = _post(body4)
         if r.get("message") != "success":
-            _log.error("qrlogin", f"2FA: código incorrecto: {r}")
+            _log.error("qrlogin", f"2FA: wrong code: {r}")
             return False
-        _log.ok("qrlogin", "2FA: verificación exitosa")
+        _log.ok("qrlogin", "2FA: verification successful")
         return True
     except Exception as e:
-        _log.error("qrlogin", f"2FA: error en action=4: {e}")
+        _log.error("qrlogin", f"2FA: error on action=4: {e}")
         return False
 
 
@@ -396,10 +396,10 @@ def _try_login(did: str) -> dict | None:
     try:
         opener.open(req, timeout=10)
     except Exception as e:
-        _log.warn("qrlogin", f"advertencia cargando pagina inicial: {e}")
+        _log.warn("qrlogin", f"warning loading initial page: {e}")
 
-                      
-    _log.info("qrlogin", "obteniendo codigo QR...")
+
+    _log.info("qrlogin", "getting QR code...")
     data = None
     for attempt in range(2):
         try:
@@ -429,12 +429,12 @@ def _try_login(did: str) -> dict | None:
                 data = json.loads(resp.read())
             break
         except Exception as e:
-            _log.error("qrlogin", f"get_qrcode intento {attempt + 1}/2 fallo: {e}")
+            _log.error("qrlogin", f"get_qrcode attempt {attempt + 1}/2 failed: {e}")
             if attempt == 1:
                 return None
 
     if data is None or data.get("message") != "success":
-        raise RuntimeError(f"get_qrcode fallo: {data}")
+        raise RuntimeError(f"get_qrcode failed: {data}")
 
     token = data["data"]["token"]
     index_url = data["data"]["qrcode_index_url"]
@@ -445,10 +445,10 @@ def _try_login(did: str) -> dict | None:
     try:
         short_url = _shorten_url(opener, index_url, did)
     except Exception as e:
-        _log.warn("qrlogin", f"no se pudo acortar URL ({e}), usando URL original")
+        _log.warn("qrlogin", f"couldn't shorten URL ({e}), using original URL")
         short_url = index_url
 
-    _log.info("qrlogin", "escanea este QR con TikTok:\n")
+    _log.info("qrlogin", "scan this QR with TikTok:\n")
     _print_qr(short_url)
     print()
 
@@ -502,7 +502,7 @@ def _try_login(did: str) -> dict | None:
             except KeyboardInterrupt:
                 raise
             except Exception as e:
-                _log.error("qrlogin", f"error en check_qrconnect: {e}")
+                _log.error("qrlogin", f"error in check_qrconnect: {e}")
                 time.sleep(2)
                 continue
 
@@ -535,13 +535,13 @@ def _try_login(did: str) -> dict | None:
                             except Exception:
                                 pass
                     if not passport_ticket:
-                        _log.error("qrlogin", "2FA requerida pero no se pudo obtener passport_ticket")
+                        _log.error("qrlogin", "2FA required but passport_ticket could not be obtained")
                         _stop_event.wait(3)
                         continue
                     if not pseudo_id:
-                        _log.warn("qrlogin", "2FA: no se pudo obtener pseudo_id, usando valor por defecto")
+                        _log.warn("qrlogin", "2FA: couldn't get pseudo_id, using default value")
                         pseudo_id = "PID00000000000000000"
-                    _log.warn("qrlogin", "2FA requerida (verificación de identidad)")
+                    _log.warn("qrlogin", "2FA required (identity verification)")
                     passport_ticket_for_poll = passport_ticket
                     _stop_event.wait(random.uniform(1, 2))
                     ok = _handle_2fa(opener, passport_ticket, did, pseudo_id, ms_token)
@@ -549,7 +549,7 @@ def _try_login(did: str) -> dict | None:
                         raise _TwoFAFailed()
                     ms_token = next((c.value for c in jar if c.name == "msToken"), ms_token)
                     continue
-                _log.error("qrlogin", f"{data.get('data', {}).get('description', data)}, reintentando...")
+                _log.error("qrlogin", f"{data.get('data', {}).get('description', data)}, retrying...")
                 _stop_event.wait(3)
                 continue
 
@@ -558,11 +558,11 @@ def _try_login(did: str) -> dict | None:
 
             if status not in status_shown:
                 if status == "new":
-                    _log.info("qrlogin", "esperando escaneo...")
+                    _log.info("qrlogin", "waiting for scan...")
                 elif status == "scanned":
-                    _log.ok("qrlogin", "escaneado - acepta en tu telefono...")
+                    _log.ok("qrlogin", "scanned - accept on your phone...")
                 elif status == "expired":
-                    _log.warn("qrlogin", "QR expirado.")
+                    _log.warn("qrlogin", "QR expired.")
                     return None
                 status_shown.add(status)
 
@@ -574,12 +574,15 @@ def _try_login(did: str) -> dict | None:
                             k, v = cookie_part.split("=", 1)
                             if v:
                                 cookies[k.strip()] = v.strip()
+                for c in jar:
+                    if c.name not in cookies and c.value:
+                        cookies[c.name] = c.value
                 return cookies
 
             _stop_event.wait(2)
     except KeyboardInterrupt:
         _stop_event.set()
-        _log.warn("qrlogin", "cancelado.")
+        _log.warn("qrlogin", "cancelled.")
         return None
 
     return None
