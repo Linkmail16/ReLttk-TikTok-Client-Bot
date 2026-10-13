@@ -1,3 +1,12 @@
+#############################################################################
+# NOTE: this plugin is just an EXAMPLE of how to download a TikTok video
+# and send the link back in the chat. The upload endpoint it points to
+# (_UPLOAD_URL below, linkmail.wtf/cut/upload) is a private server that
+# NO LONGER WORKS for you. Replace _UPLOAD_URL with your own file host
+# (or any service that accepts a POST upload and returns a URL) before
+# using this plugin.
+#############################################################################
+
 import asyncio
 import io
 import json
