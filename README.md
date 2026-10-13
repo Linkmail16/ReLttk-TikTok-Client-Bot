@@ -49,6 +49,13 @@ When will I fully add the API? My rooted phone was stolen. Once I buy a new one,
 - `client.py`: `_parse()` — now also extracts `sticker_url`, `quoted_sticker_url`, `quoted_sticker_id`
 - `plugins/videodl.py`: Added group chat support — retrieves quoted video from message cache
 
+### Fixed
+- `qrlogin.py`: login used to hang after verifying the 2FA code because `check_qrconnect` wasn't sending cookies and tickets TikTok expects by then
+- `core/signer_client.py`: fixed wrong signing constants that made TikTok silently reject the 2FA code request
+- `qrlogin.py`: a failed 2FA attempt no longer regenerates the QR instantly and keeps retrying with the same fingerprint, it just stops and asks to wait
+- `core/api.py`: `get_item_detail()` and `get_music_detail()` were broken, both depended on an external `ttsigner` folder that doesn't exist in this repo; now sign with `core/signer_client.py` like everything else
+- `client.py`: `_sent_echo` (tracks your own sent messages) was never cleaned up and grew forever; now capped at 1000 like the message DB
+
 
 
 
@@ -78,7 +85,7 @@ lttk/
 ├── log.py
 ├── qrlogin.py
 ├── browsercookies.py
-├── sesion/
+├── session/
 │   └── username.json
 ├── core/
 │   ├── api.py
@@ -113,7 +120,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-First run opens a QR code - scan it with TikTok and the session gets saved to `sesion/<username>.json`. After that, just run the same command and it picks up the session automatically. If it expires it'll ask for QR again.
+First run opens a QR code - scan it with TikTok and the session gets saved to `session/<username>.json`. After that, just run the same command and it picks up the session automatically. If it expires it'll ask for QR again.
 
 ### Import cookies from a file
 
@@ -278,9 +285,9 @@ print(json.dumps(parsed, indent=2, default=str))
 
 ## Multiple sessions
 
-Each account has its own file in `sesion/`. The bot loads the first one it finds. To switch accounts just remove or rename the files.
+Each account has its own file in `session/`. The bot loads the first one it finds. To switch accounts just remove or rename the files.
 
-Don't commit `sesion/` to git, it has your cookies.
+Don't commit `session/` to git, it has your cookies.
 
 ---
 

@@ -31,20 +31,20 @@ async def _run_all():
     def _start(username: str):
         if username in bots and not bots[username].done():
             return
-        log.info("lttk", f"arrancando sesion: {username}")
+        log.info("lttk", f"starting session: {username}")
         bot = LttkClient(username=username, managed=True)
         bot_instances[username] = bot
         bots[username] = asyncio.create_task(bot.run())
 
     async def _do_qr():
-        log.info("lttk", "iniciando login por QR...")
+        log.info("lttk", "starting QR login...")
         try:
             await loop.run_in_executor(None, qrlogin.run)
         except (KeyboardInterrupt, asyncio.CancelledError):
             qrlogin._stop_event.set()
             raise
         except Exception as e:
-            log.error("lttk", f"error en QR login: {e}")
+            log.error("lttk", f"error in QR login: {e}")
             return
         for s in _list_sessions():
             _start(s)
@@ -64,11 +64,11 @@ async def _run_all():
             try:
                 await bot.close_session()
             except Exception as e:
-                log.warn("lttk", f"error cerrando sesion {username}: {e}")
+                log.warn("lttk", f"error closing session {username}: {e}")
         task = bots.get(username)
         if task and not task.done():
             task.cancel()
-        log.ok("lttk", f"sesion {username} cerrada")
+        log.ok("lttk", f"session {username} closed")
 
     async def _console():
         while True:
@@ -82,10 +82,10 @@ async def _run_all():
             elif cmd_lower == "list":
                 if bots:
                     for name, task in bots.items():
-                        status = "activo" if not task.done() else "detenido"
+                        status = "active" if not task.done() else "stopped"
                         log.info("lttk", f"  {name}: {status}")
                 else:
-                    log.info("lttk", "no hay sesiones activas")
+                    log.info("lttk", "no active sessions")
 
             elif cmd_lower == "stop":
                 for task in bots.values():
@@ -99,15 +99,15 @@ async def _run_all():
                     if target in bots:
                         await _close_session(target)
                     else:
-                        log.warn("lttk", f"sesion no encontrada: {target}")
+                        log.warn("lttk", f"session not found: {target}")
                 else:
                     active = [n for n, t in bots.items() if not t.done()]
                     if not active:
-                        log.info("lttk", "no hay sesiones activas para cerrar")
+                        log.info("lttk", "no active sessions to close")
                     elif len(active) == 1:
                         await _close_session(active[0])
                     else:
-                        log.info("lttk", "elige una sesion para cerrar:")
+                        log.info("lttk", "choose a session to close:")
                         for i, name in enumerate(active, 1):
                             log.info("lttk", f"  {i}. {name}")
                         choice = await loop.run_in_executor(None, sys.stdin.readline)
@@ -117,14 +117,14 @@ async def _run_all():
                             if 0 <= idx < len(active):
                                 await _close_session(active[idx])
                             else:
-                                log.warn("lttk", "numero invalido")
+                                log.warn("lttk", "invalid number")
                         elif choice in bots:
                             await _close_session(choice)
                         else:
-                            log.warn("lttk", "cancelado")
+                            log.warn("lttk", "cancelled")
 
             elif cmd:
-                log.info("lttk", "comandos: add | list | stop | close [usuario]")
+                log.info("lttk", "commands: add | list | stop | close [username]")
 
     async def _watchdog():
         while True:
@@ -133,7 +133,7 @@ async def _run_all():
                 if task.done() and name not in _stopped:
                     exc = task.exception() if not task.cancelled() else None
                     if exc:
-                        log.warn("lttk", f"sesion {name} terminó con error ({exc}), reiniciando...")
+                        log.warn("lttk", f"session {name} ended with error ({exc}), restarting...")
                     _start(name)
 
     await asyncio.gather(_console(), _watchdog(), *bots.values(), return_exceptions=True)
@@ -156,12 +156,12 @@ if __name__ == "__main__":
             else:
                 cookies = data
             if not cookies.get("sessionid"):
-                raise ValueError("no se encontro sessionid en el archivo")
+                raise ValueError("sessionid not found in file")
         except Exception as e:
             log.error("cookies", str(e))
             sys.exit(1)
         qrlogin._write_cookies(cookies)
-        log.ok("cookies", "importado, reinicia el bot para aplicar")
+        log.ok("cookies", "imported, restart the bot to apply")
 
     elif args and args[0] == "browser":
         browser = args[1] if len(args) > 1 else "chrome"
@@ -175,7 +175,7 @@ if __name__ == "__main__":
             log.error("browser", str(e))
             sys.exit(1)
         qrlogin._write_cookies(cookies)
-        log.ok("browser", f"cookies de {browser} importadas, reinicia el bot para aplicar")
+        log.ok("browser", f"cookies from {browser} imported, restart the bot to apply")
 
     else:
         try:

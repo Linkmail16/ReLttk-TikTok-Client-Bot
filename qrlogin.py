@@ -291,7 +291,7 @@ def _set_cookie(jar: http.cookiejar.CookieJar, name: str, value: str):
     ))
 
 
-def _handle_2fa(opener, passport_ticket: str, did: str, pseudo_id: str, ms_token: str) -> bool:
+def _handle_2fa(opener, passport_ticket: str, did: str, pseudo_id: str, ms_token: str, contact_info: str = "") -> bool:
     lang = _LANG.split("-")[0]
     query = (
         f"verifyFp={_VERIFY_FP}"
@@ -348,7 +348,7 @@ def _handle_2fa(opener, passport_ticket: str, did: str, pseudo_id: str, ms_token
         if r.get("message") != "success":
             _log.error("qrlogin", f"2FA: error sending code: {r}")
             return False
-        _log.ok("qrlogin", "2FA: code sent to the registered email/phone")
+        _log.ok("qrlogin", f"2FA: code sent to {contact_info or 'the registered email/phone'}")
     except Exception as e:
         _log.error("qrlogin", f"2FA: error on action=3: {e}")
         return False
@@ -519,6 +519,8 @@ def _try_login(did: str) -> dict | None:
                 if err_code == 2135:
                     passport_ticket = ""
                     pseudo_id = ""
+                    contact_info = ""
+                    options_desc = ""
                     for line in str(raw_headers).splitlines():
                         if "x-tt-verify-idv-decision-conf" in line.lower():
                             import json as _json2
@@ -530,8 +532,16 @@ def _try_login(did: str) -> dict | None:
                                 email_entry = next((x for x in extra if x.get("type") == 2), None)
                                 if email_entry:
                                     pseudo_id = email_entry.get("pseudo_id", "")
+                                    contact_info = email_entry.get("info", "")
                                 elif extra:
                                     pseudo_id = extra[0].get("pseudo_id", "")
+                                    contact_info = extra[0].get("info", "")
+                                _TYPE_LABELS = {1: "phone", 2: "email", 3: "password"}
+                                options = [
+                                    f"{_TYPE_LABELS.get(x.get('type'), 'option')} ({x['info']})"
+                                    for x in extra if x.get("info")
+                                ]
+                                options_desc = ", ".join(options)
                             except Exception:
                                 pass
                     if not passport_ticket:
@@ -541,10 +551,13 @@ def _try_login(did: str) -> dict | None:
                     if not pseudo_id:
                         _log.warn("qrlogin", "2FA: couldn't get pseudo_id, using default value")
                         pseudo_id = "PID00000000000000000"
-                    _log.warn("qrlogin", "2FA required (identity verification)")
+                    _2fa_msg = "2FA required (identity verification)"
+                    if options_desc:
+                        _2fa_msg += f" - available: {options_desc}"
+                    _log.warn("qrlogin", _2fa_msg)
                     passport_ticket_for_poll = passport_ticket
                     _stop_event.wait(random.uniform(1, 2))
-                    ok = _handle_2fa(opener, passport_ticket, did, pseudo_id, ms_token)
+                    ok = _handle_2fa(opener, passport_ticket, did, pseudo_id, ms_token, contact_info)
                     if not ok:
                         raise _TwoFAFailed()
                     ms_token = next((c.value for c in jar if c.name == "msToken"), ms_token)

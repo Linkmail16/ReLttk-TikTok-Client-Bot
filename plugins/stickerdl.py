@@ -26,7 +26,7 @@ async def on_message(bot, msg):
         return
 
     if not result:
-        await bot.send_message(text="no se pudo descargar el sticker", msg=msg)
+        await bot.send_message(text="couldn't download the sticker", msg=msg)
         await bot.remove_reaction(msg=msg, emoji="✍️")
         return
 

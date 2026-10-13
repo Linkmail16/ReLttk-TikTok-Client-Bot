@@ -12,7 +12,7 @@ async def on_message(bot, msg):
 
     text = (
         f"@{user['unique_id']}\n"
-        f"Nombre: {user['nick_name']}\n"
+        f"Name: {user['nick_name']}\n"
         f"ID: {user['user_id_str']}\n"
         f"{follow} · {follows}"
     )

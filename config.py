@@ -9,9 +9,10 @@ WS_URL = (
     "&Web-Sdk-Ms-Token=HNbcF8twTsi3oQJ9A92RAP7hWT_xLdYp1O5m3ppPwKrB_Zf47-U6_7SrL_oEa3_3ySFNLRHBY7krUTvyxvIMVEw81wuvKWyNgdXQVvXCS3EddPPvHE1z15rdnbzno4K8nDGh6glLjMI="
 )
 
-OWN_USER_ID = ""
-DEVICE_ID   = ""
-VERIFY_FP   = ""
+OWN_USER_ID  = ""
+DEVICE_ID    = ""
+VERIFY_FP    = ""
+TT_CSRF_TOKEN = "4aORzizB-hQdfpZXJRot0Q3ROnN5rzR0eOII"
 
 MSG_SDK_MS_TOKEN = ""
 TT_PUBLIC_KEY    = ""

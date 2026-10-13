@@ -55,6 +55,7 @@ class LttkClient:
         self._group_names: dict[str, str] = {}
         self._group_names_loaded = False
         self._accepted_strangers: set[str] = set()
+        self._stranger_fail_counts: dict[str, int] = {}
         self._sent_echo: dict[str, dict] = {}
         self._init_msg_db()
 
@@ -75,7 +76,7 @@ class LttkClient:
             mtime = os.path.getmtime(path)
             current.add(name)
             if name not in self._plugins or self._plugin_mtimes.get(name) != mtime:
-                action = "nuevo" if name not in self._plugins else "modificado"
+                action = "new" if name not in self._plugins else "modified"
                 try:
                     spec = importlib.util.spec_from_file_location(f"bot.plugins.{name}", path)
                     mod = importlib.util.module_from_spec(spec)
@@ -84,12 +85,12 @@ class LttkClient:
                     self._plugin_mtimes[name] = mtime
                     _log.plugin("lttk", action, name)
                 except Exception as e:
-                    _log.error("lttk", f"error cargando plugin {name}: {e}")
+                    _log.error("lttk", f"error loading plugin {name}: {e}")
         for name in list(self._plugins):
             if name not in current:
                 del self._plugins[name]
                 del self._plugin_mtimes[name]
-                _log.plugin("lttk", "eliminado", name)
+                _log.plugin("lttk", "deleted", name)
 
     def _init_msg_db(self):
         import sqlite3
@@ -302,7 +303,7 @@ class LttkClient:
                 names = await asyncio.get_event_loop().run_in_executor(None, lambda: get_group_names(cookies=cookies))
                 self._group_names.update(names)
             except Exception as e:
-                _log.error("lttk", f"error obteniendo nombres de grupos: {e}")
+                _log.error("lttk", f"error getting group names: {e}")
             self._group_names_loaded = bool(self._group_names)
         return self._group_names.get(conv_id, conv_id)
 
@@ -319,7 +320,7 @@ class LttkClient:
                 self._user_cache[user_id] = {"profile": profiles[0], "ts": time.monotonic()}
                 return profiles[0]
         except Exception as e:
-            _log.error("lttk", f"error obteniendo perfil {user_id}: {e}")
+            _log.error("lttk", f"error getting profile {user_id}: {e}")
         return entry["profile"] if entry else None
 
     async def get_item(self, item_id: str) -> dict | None:
@@ -1001,17 +1002,25 @@ class LttkClient:
                     conv_id = entry["conv_id"]
                     if uid == self._own_user_id or conv_id in self._accepted_strangers:
                         continue
+                    if self._stranger_fail_counts.get(conv_id, 0) >= 3:
+                        continue
                     try:
                         ok = await asyncio.get_event_loop().run_in_executor(None, lambda: accept_stranger(conv_id, uid, cookies=cookies))
                         if ok:
                             self._accepted_strangers.add(conv_id)
-                            _log.ok("lttk", f"chat aceptado: {uid}")
+                            self._stranger_fail_counts.pop(conv_id, None)
+                            _log.ok("lttk", f"chat accepted: {uid}")
                         else:
-                            _log.warn("lttk", f"no se pudo aceptar chat de {uid}")
+                            fails = self._stranger_fail_counts[conv_id] = self._stranger_fail_counts.get(conv_id, 0) + 1
+                            if fails >= 3:
+                                _log.warn("lttk", f"giving up accepting chat from {uid} after {fails} attempts")
+                            else:
+                                _log.warn("lttk", f"couldn't accept chat from {uid}")
                     except Exception as e:
-                        _log.warn("lttk", f"error aceptando chat de {uid}: {e}")
+                        self._stranger_fail_counts[conv_id] = self._stranger_fail_counts.get(conv_id, 0) + 1
+                        _log.warn("lttk", f"error accepting chat from {uid}: {e}")
             except Exception as e:
-                _log.error("lttk", f"error en stranger loop: {e}")
+                _log.error("lttk", f"error in stranger loop: {e}")
             await asyncio.sleep(10)
 
     async def _watch_plugins(self):
@@ -1036,7 +1045,7 @@ class LttkClient:
                 if hasattr(plugin, "on_message"):
                     await plugin.on_message(self, msg)
             except Exception as e:
-                _log.error("lttk", f"error en plugin {name}: {e}")
+                _log.error("lttk", f"error in plugin {name}: {e}")
 
     async def _dispatch_reaction(self, rxn: dict):
         for name, plugin in list(self._plugins.items()):
@@ -1044,7 +1053,7 @@ class LttkClient:
                 if hasattr(plugin, "on_reaction"):
                     await plugin.on_reaction(self, rxn)
             except Exception as e:
-                _log.error("lttk", f"error en plugin {name} (reaction): {e}")
+                _log.error("lttk", f"error in plugin {name} (reaction): {e}")
 
     async def _dispatch_delete(self, deleted: dict):
         for name, plugin in list(self._plugins.items()):
@@ -1052,7 +1061,7 @@ class LttkClient:
                 if hasattr(plugin, "on_delete"):
                     await plugin.on_delete(self, deleted)
             except Exception as e:
-                _log.error("lttk", f"error en plugin {name} (delete): {e}")
+                _log.error("lttk", f"error in plugin {name} (delete): {e}")
 
     async def _heartbeat(self):
         while True:
@@ -1097,7 +1106,7 @@ class LttkClient:
                         user = await self.get_user(rxn["sender_id"])
                         name = f"{user['nick_name']} (@{user['unique_id']})" if user else rxn["sender_id"]
                         ts = datetime.now().strftime("%H:%M:%S")
-                        action = "reacciono" if rxn["op"] == 0 else "quito reaccion"
+                        action = "reacted" if rxn["op"] == 0 else "removed reaction"
                         _log.reaction(ts, name, action, rxn['emoji'])
                         asyncio.create_task(self._dispatch_reaction(rxn))
                         continue
@@ -1113,7 +1122,7 @@ class LttkClient:
                             group_tag = gname
                         else:
                             group_tag = ""
-                        _log.msg(ts, name, group_tag, "[elimino un mensaje]")
+                        _log.msg(ts, name, group_tag, "[deleted a message]")
                         asyncio.create_task(self._dispatch_delete(deleted))
                         continue
                     msg = self._parse(raw, decompressed)
@@ -1136,28 +1145,28 @@ class LttkClient:
                                 for uid in msg["group_added"]:
                                     u = await self.get_user(uid)
                                     added_names.append(f"@{u['unique_id']}" if u else uid)
-                                _log.msg(ts, name, group_tag.strip("[] "), f"agrego a {', '.join(added_names)}")
+                                _log.msg(ts, name, group_tag.strip("[] "), f"added {', '.join(added_names)}")
                             elif cmd == 6:
-                                _log.msg(ts, name, group_tag.strip("[] "), f"[evento de grupo cmd={cmd}]")
+                                _log.msg(ts, name, group_tag.strip("[] "), f"[group event cmd={cmd}]")
                             else:
-                                _log.msg(ts, name, group_tag.strip("[] "), f"[evento de grupo cmd={cmd}]")
+                                _log.msg(ts, name, group_tag.strip("[] "), f"[group event cmd={cmd}]")
                         elif msg["awe_type"] == 1823:
-                            _log.msg(ts, name, group_tag.strip("[] "), msg["text"] or "[llamada de voz]")
+                            _log.msg(ts, name, group_tag.strip("[] "), msg["text"] or "[voice call]")
                         elif msg["awe_type"] == 1814:
                             card_text = f": \"{msg['greeting_card_text']}\"" if msg["greeting_card_text"] else ""
-                            _log.msg(ts, name, group_tag.strip("[] "), f"[tarjeta de regalo{card_text}]")
+                            _log.msg(ts, name, group_tag.strip("[] "), f"[greeting card{card_text}]")
                         elif msg["awe_type"] == 1025:
                             creator = await self.get_user(msg["story_uid"]) if msg["story_uid"] else None
                             creator_tag = f"@{creator['unique_id']}" if creator else f"@{msg['story_uid']}"
-                            _log.msg(ts, name, group_tag.strip("[] "), f"[historia de {creator_tag}: \"{msg['story_title']}\"] https://www.tiktok.com/{creator_tag}/video/{msg['story_item_id']}")
+                            _log.msg(ts, name, group_tag.strip("[] "), f"[story by {creator_tag}: \"{msg['story_title']}\"] https://www.tiktok.com/{creator_tag}/video/{msg['story_item_id']}")
                         elif msg["awe_type"] == 25:
-                            _log.msg(ts, name, group_tag.strip("[] "), f"[perfil de {msg['profile_name']}] https://www.tiktok.com/@{msg['profile_sec_uid']}")
+                            _log.msg(ts, name, group_tag.strip("[] "), f"[profile {msg['profile_name']}] https://www.tiktok.com/@{msg['profile_sec_uid']}")
                         elif msg["awe_type"] == 40:
-                            _log.msg(ts, name, group_tag.strip("[] "), f"[comentario \"{msg['comment_text']}\"] https://www.tiktok.com/@{msg['comment_author_name']}/video/{msg['comment_video_id']}")
+                            _log.msg(ts, name, group_tag.strip("[] "), f"[comment \"{msg['comment_text']}\"] https://www.tiktok.com/@{msg['comment_author_name']}/video/{msg['comment_video_id']}")
                         elif msg["awe_type"] == 1021:
-                            _log.msg(ts, name, group_tag.strip("[] "), f"[live de @{msg['live_owner_name']}] https://www.tiktok.com/@{msg['live_owner_name']}/live")
+                            _log.msg(ts, name, group_tag.strip("[] "), f"[live by @{msg['live_owner_name']}] https://www.tiktok.com/@{msg['live_owner_name']}/live")
                         elif msg["awe_type"] == 1813:
-                            _log.msg(ts, name, group_tag.strip("[] "), f"[nota de voz {msg['voice_duration']}]")
+                            _log.msg(ts, name, group_tag.strip("[] "), f"[voice note {msg['voice_duration']}]")
                         elif msg["awe_type"] == 1805:
                             if msg["sticker_origin_video_id"]:
                                 creator = await self.get_user(msg["sticker_creator_uid"]) if msg["sticker_creator_uid"] else None
@@ -1178,7 +1187,7 @@ class LttkClient:
                             _log.msg(ts, name, group_tag.strip("[] "), msg['text'])
                         asyncio.create_task(self._dispatch(msg))
             except websockets.exceptions.ConnectionClosed:
-                _log.warn("lttk", "conexion cerrada")
+                _log.warn("lttk", "connection closed")
                 break
             except Exception as e:
                 _log.error("lttk", f"error recv: {e}")
@@ -1198,9 +1207,9 @@ class LttkClient:
                 },
             )
             urllib.request.urlopen(req, timeout=10)
-            _log.ok("lttk", "sesion cerrada en TikTok")
+            _log.ok("lttk", "session closed on TikTok")
         except Exception as e:
-            _log.warn("lttk", f"error al cerrar sesion en TikTok ({e})")
+            _log.warn("lttk", f"error closing session on TikTok ({e})")
 
         if self._active_session:
             from .qrlogin import _SESSION_DIR
@@ -1208,7 +1217,7 @@ class LttkClient:
             path = os.path.join(_SESSION_DIR, f"{self._active_session}.json")
             try:
                 os.remove(path)
-                _log.ok("lttk", f"credencial eliminada: {self._active_session}.json")
+                _log.ok("lttk", f"credentials deleted: {self._active_session}.json")
             except FileNotFoundError:
                 pass
             self._active_session = None
@@ -1230,7 +1239,7 @@ class LttkClient:
             elif cmd == "retry":
                 raise _BotRestart()
             elif cmd:
-                _log.info("lttk", f"comandos: retry | stop | close")
+                _log.info("lttk", f"commands: retry | stop | close")
 
     def _load_session(self):
         from .qrlogin import list_sessions, load_session
@@ -1239,7 +1248,7 @@ class LttkClient:
         for username in candidates:
             cookies = load_session(username)
             if cookies.get("sessionid"):
-                _log.info("lttk", f"cargando sesion: {username}")
+                _log.info("lttk", f"loading session: {username}")
                 self._cookies = cookies
                 self._active_session = username
                 cookie = "; ".join(f"{k}={v}" for k, v in cookies.items())
@@ -1253,7 +1262,7 @@ class LttkClient:
     async def run(self):
         if not self._cookies.get("sessionid"):
             if not self._load_session():
-                _log.warn("lttk", "no hay sesion, iniciando login por QR...")
+                _log.warn("lttk", "no session, starting QR login...")
                 from .qrlogin import run as qr_run, _stop_event as qr_stop
                 try:
                     await asyncio.get_event_loop().run_in_executor(None, qr_run)
@@ -1283,12 +1292,12 @@ class LttkClient:
             profiles = await asyncio.get_event_loop().run_in_executor(None, lambda: get_user_profiles([self._own_user_id], cookies=cookies))
             if profiles:
                 p = profiles[0]
-                _log.ok("lttk", f"conectado como: {p['nick_name']} (@{p['unique_id']}) [{self._own_user_id}]")
+                _log.ok("lttk", f"connected as: {p['nick_name']} (@{p['unique_id']}) [{self._own_user_id}]")
             else:
                 _log.info("lttk", f"uid: {self._own_user_id}")
         except Exception as e:
             if "Login expired" in str(e):
-                _log.warn("lttk", "sesion caducada o invalida, borrando cookies y reiniciando login...")
+                _log.warn("lttk", "session expired or invalid, clearing cookies and restarting login...")
                 from .qrlogin import run as qr_run, _stop_event as qr_stop
                 self._cookies = {}
                 try:
@@ -1298,10 +1307,10 @@ class LttkClient:
                     return
                 self._load_session()
             else:
-                _log.warn("lttk", f"no se pudo verificar sesion ({e}), continuando...")
+                _log.warn("lttk", f"couldn't verify session ({e}), continuing...")
 
         while True:
-            _log.info("lttk", "conectando...")
+            _log.info("lttk", "connecting...")
             try:
                 async with websockets.connect(
                     self._ws_url,
@@ -1312,7 +1321,7 @@ class LttkClient:
                     ping_timeout=10,
                 ) as ws:
                     self.websocket = ws
-                    _log.ok("lttk", "conectado")
+                    _log.ok("lttk", "connected")
                     await ws.send("hi")
                     try:
                         await asyncio.wait_for(ws.recv(), timeout=10)
@@ -1340,14 +1349,14 @@ class LttkClient:
                         for t in done:
                             t.result()
                     except _BotRestart:
-                        _log.info("lttk", "reiniciando...")
+                        _log.info("lttk", "restarting...")
                         await self.run()
                         return
                     except _BotStop:
-                        _log.info("lttk", "detenido.")
+                        _log.info("lttk", "stopped.")
                         return
             except _BotStop:
                 return
             except Exception as e:
-                _log.warn("lttk", f"conexion perdida ({e}), reconectando en 5s...")
+                _log.warn("lttk", f"connection lost ({e}), reconnecting in 5s...")
                 await asyncio.sleep(5)

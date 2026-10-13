@@ -39,7 +39,7 @@ def _read_locked_file(path: str, browser: str) -> bytes:
         with open(path, "rb") as f:
             return f.read()
     except PermissionError:
-        raise PermissionError(f"no se pudo leer el archivo de cookies de {browser}")
+        raise PermissionError(f"couldn't read the cookies file for {browser}")
 
 
 def _get_chromium_key(browser: str) -> bytes:
@@ -97,7 +97,7 @@ def _decrypt_chromium(encrypted: bytes, browser: str = "") -> str:
 def _read_chromium(browser: str) -> dict:
     path = _CHROMIUM_PATHS.get(browser)
     if not path or not os.path.exists(path):
-        raise FileNotFoundError(f"no se encontro el archivo de cookies de {browser}")
+        raise FileNotFoundError(f"couldn't find the cookies file for {browser}")
 
     data = _read_locked_file(path, browser)
     tmp = tempfile.mktemp(suffix=".db")
@@ -168,7 +168,7 @@ def _debug_all_cookies(browser: str) -> dict:
 
 def _read_firefox() -> dict:
     if not os.path.exists(_FIREFOX_PROFILES):
-        raise FileNotFoundError("no se encontro el perfil de Firefox")
+        raise FileNotFoundError("couldn't find the Firefox profile")
 
     profile = None
     for name in os.listdir(_FIREFOX_PROFILES):
@@ -180,11 +180,11 @@ def _read_firefox() -> dict:
         if entries:
             profile = os.path.join(_FIREFOX_PROFILES, entries[0])
     if not profile:
-        raise FileNotFoundError("no se encontro perfil de Firefox")
+        raise FileNotFoundError("couldn't find a Firefox profile")
 
     db_path = os.path.join(profile, "cookies.sqlite")
     if not os.path.exists(db_path):
-        raise FileNotFoundError(f"no se encontro cookies.sqlite en {profile}")
+        raise FileNotFoundError(f"couldn't find cookies.sqlite in {profile}")
 
     tmp = tempfile.mktemp(suffix=".db")
     shutil.copy2(db_path, tmp)
@@ -209,9 +209,9 @@ def get_tiktok_cookies(browser: str) -> dict:
     elif browser in _CHROMIUM_PATHS:
         cookies = _read_chromium(browser)
     else:
-        raise ValueError(f"navegador no soportado: {browser}. Usa: chrome, brave, edge, firefox")
+        raise ValueError(f"unsupported browser: {browser}. Use: chrome, brave, edge, firefox")
 
     if not cookies.get("sessionid"):
-        raise RuntimeError(f"no se encontro sessionid de TikTok en {browser} — asegurate de estar logueado en TikTok")
+        raise RuntimeError(f"couldn't find a TikTok sessionid in {browser} — make sure you're logged into TikTok")
 
     return cookies

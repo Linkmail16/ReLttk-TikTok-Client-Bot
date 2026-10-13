@@ -43,5 +43,5 @@ def reaction(ts: str, sender: str, action: str, emoji: str):
     print(f"{ts_part} {_BOLD}{sender}{_R}: [{_YELLOW}{action} {emoji}{_R}]")
 
 def plugin(tag: str, action: str, name: str):
-    color = _GREEN if action == "nuevo" else _RED if action == "eliminado" else _YELLOW
+    color = _GREEN if action == "new" else _RED if action == "deleted" else _YELLOW
     print(f"{_tag(_CYAN, tag)} plugin {color}{action}{_R}: {name}")

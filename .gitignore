@@ -1,7 +1,7 @@
 __pycache__/
 *.pyc
 *.pyo
-sesion/
+session/
 .uid_cache.json
 .vscode/
 messages.db

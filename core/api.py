@@ -44,7 +44,7 @@ def get_own_user_id(cookies: dict | None = None) -> str:
 
     m = re.search(r'"odinId"\s*:\s*"(\d+)"', html)
     if not m:
-        raise RuntimeError("No se pudo obtener OWN_USER_ID desde la pagina de mensajes")
+        raise RuntimeError("Couldn't get OWN_USER_ID from the messages page")
 
     uid = m.group(1)
     with open(_UID_CACHE_FILE, "w") as f:
