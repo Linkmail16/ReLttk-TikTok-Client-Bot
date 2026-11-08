@@ -112,6 +112,17 @@ async def on_message(bot, msg):
 | `on_reaction(bot, rxn)` | A reaction is added or removed |
 | `on_delete(bot, deleted)` | A message is deleted |
 
+### What happens on reload
+
+When you save a plugin, ReLttk loads it as a new module within about a second. Nothing gets cancelled:
+
+- A handler that is already running finishes with the old code. New messages go to the new version, so for a moment both can run at the same time.
+- Module-level state (globals, caches, open connections) starts fresh in the new version.
+- `on_start` only runs when the bot connects, not on reload.
+- If the file has an error, it gets logged and the previous version keeps working.
+
+So don't keep important state at module level. Store it on the `bot` object, in a file or in a database.
+
 ### Built-in commands
 
 | Command | Description |
