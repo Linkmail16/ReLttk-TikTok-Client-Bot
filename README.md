@@ -1,263 +1,210 @@
-# LTTK - TikTok DM Bot
+<div align="center">
 
-> [!IMPORTANT]
-> **NO AUTOMATED BROWSERS** - this is pure API. No Selenium, no Playwright, no Puppeteer. Everything goes through TikTok's internal endpoints directly.
+<img src="assets/banner.svg" alt="ReLttk — TikTok DM bots in Python" width="100%">
 
-Python bot for TikTok DMs. Connects to TikTok's internal WebSocket, reads incoming messages and runs plugins on them.
+**Build TikTok DM bots in Python. No browser, no Selenium, just TikTok's own API.**
 
-> **Disclaimer:** This is a reverse-engineered TikTok client. Use at your own risk. Not affiliated with TikTok/ByteDance.
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-25f4ee)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/Linkmail16/ReLttk-TikTok-Client-Bot?style=flat&color=fe2c55)](https://github.com/Linkmail16/ReLttk-TikTok-Client-Bot/stargazers)
+[![Last commit](https://img.shields.io/github/last-commit/Linkmail16/ReLttk-TikTok-Client-Bot?color=555)](https://github.com/Linkmail16/ReLttk-TikTok-Client-Bot/commits)
 
-This started as a personal project and I decided to share it. It's early stage - expect rough edges, and expect improvements over time.
+[Quick start](#quick-start) · [Your first plugin](#your-first-plugin) · [How it works](#how-it-works) · [API reference](#api-reference) · [Changelog](CHANGELOG.md)
 
-
+</div>
 
 ---
-# Changelog
 
-12/10/2026
+ReLttk connects to TikTok's internal messaging WebSocket, decodes every incoming DM and hands it to your plugins. A plugin is a plain Python file with an `async` function. Drop it in `plugins/` and it is live, no restart needed.
 
-### Fixed
-- `qrlogin.py`: login used to hang after verifying the 2FA code because `check_qrconnect` wasn't sending cookies and tickets TikTok expects by then
-- `core/signer_client.py`: fixed wrong signing constants that made TikTok silently reject the 2FA code request
-- `qrlogin.py`: a failed 2FA attempt no longer regenerates the QR instantly and keeps retrying with the same fingerprint, it just stops and asks to wait
-- `core/api.py`: `get_item_detail()` and `get_music_detail()` were broken, both depended on an external `ttsigner` folder that doesn't exist in this repo; now sign with `core/signer_client.py` like everything else
-- `client.py`: `_sent_echo` (tracks your own sent messages) was never cleaned up and grew forever; now capped at 1000 like the message DB
-
-
-### Added
-- `qrlogin.py`: 2FA support for QR login, now handles it when TikTok asks to verify your identity
-- `client.py`: Message database (SQLite) — persists received messages locally, max 1000 entries
-  - `_init_msg_db()`, `_store_msg()`, `get_message()`, `get_messages()`
-- `client.py`: Conversation history API
-  - `fetch_history()`, `fetch_history_raw()`, `_parse_history_response()`, `_parse_history_msg()`
-- `client.py`: `_proto_to_dict()` — converts raw protobuf bytes to dict for inspection
-- `client.py`: `get_conversations()`, `get_groups()`, `get_private_chats()` — list and filter conversations
-- `client.py`: `download(msg)` — downloads stickers, videos and voice messages
-- `core/api.py`: `_fetch_inbox()`, `_parse_inbox()`, `get_conversations()` — inbox fetch with full conversation metadata (name, is_group, unread, member_count, avatar)
-- `core/api.py`: `get_conversation_history()` — paginated history fetch with cursor support
-- `core/api.py`: `_varint()`, `_pb_varint()`, `_pb_bytes()`, `_pb_str()` — protobuf encoding helpers
-- `plugins/stickerdl.py`: `/dl` command to download quoted stickers, saves to `stickers/`
-- `main.py`: `cookies <path>` argument — import cookies from JSON file
-- `main.py`: `browser <name>` argument — import cookies from browser (Chrome, Firefox, etc.)
-- `browsercookies.py`: helper to extract TikTok cookies from local browser storage
-
-### Changed
-- `core/api.py`: Rewrote `get_group_names()` — was broken (wrong payload + wrong parser), now delegates to `_fetch_inbox()` + `_parse_inbox()`
-- `client.py`: `_dispatch()` now calls `_store_msg()` to persist messages as they arrive
-- `client.py`: `get_group_name()` — no longer stays stuck on loaded=True if the result was empty; retries on next message
-- `client.py`: `send_message()` now logs sent messages
-- `client.py`: `_parse()` — now also extracts `sticker_url`, `quoted_sticker_url`, `quoted_sticker_id`
-- `plugins/videodl.py`: Added group chat support — retrieves quoted video from message cache
-
-
+```python
+# plugins/hello.py
+async def on_message(bot, msg):
+    if msg["text"].strip() == "/hello":
+        await bot.send_message(text="hello!", msg=msg)
+```
 
 ## Features
 
-- Real-time DMs via WebSocket
-- 1-on-1 and group conversations
-- Text, videos, photos, music, stickers, voice notes, stories, live streams and more
-- Reactions and message deletions
-- Conversation history fetch with pagination
-- Local message cache (SQLite)
-- Download stickers, videos, and voice notes
-- List conversations, filter groups or private chats
-- Auto re-login with QR when session expires
-- Plugin system with hot-reload - just edit the file, no restart needed
-- QR login, no password needed — handles 2FA/identity verification (email or phone code) automatically if TikTok asks for it
+| | |
+|---|---|
+| **Pure API** | Talks to TikTok's internal endpoints directly. No Selenium, Playwright or Puppeteer. |
+| **Local request signing** | `X-Dynosaur` and `X-Gnarly` are computed in pure Python. No external signing service. |
+| **QR login** | Scan with the TikTok app and you're in. Handles 2FA / identity checks (email or phone code). Re-asks for the QR when the session expires. |
+| **Real-time DMs** | Private chats and groups over WebSocket: messages, reactions and deletions as they happen. |
+| **Every message type** | Text, videos, photos, music, stickers, voice notes, stories, live streams, profiles and more. |
+| **Plugins with hot reload** | Edit a plugin and it reloads instantly. Hooks for messages, reactions, deletions and startup. |
+| **History and cache** | Paginated conversation history plus a local SQLite cache of recent messages. |
+| **Downloads** | Save stickers, videos and voice notes from any message. |
 
----
+## Quick start
 
-## Structure
-
-```
-lttk/
-├── main.py
-├── client.py
-├── config.py
-├── log.py
-├── qrlogin.py
-├── browsercookies.py
-├── session/
-│   └── username.json
-├── core/
-│   ├── api.py
-│   ├── proto.py
-│   └── signer_client.py
-└── plugins/
-    ├── ping.py
-    ├── info.py
-    ├── react.py
-    ├── menu.py
-    ├── videodl.py
-    └── stickerdl.py
-```
-
----
-
-## Requirements
-
-- Python 3.10+
-- A signing service running at the URL set in `core/signer_client.py`
-- `pycryptodome` — only needed if you use the `browser` cookie import feature
+**1. Install**
 
 ```bash
+git clone https://github.com/Linkmail16/ReLttk-TikTok-Client-Bot.git
+cd ReLttk-TikTok-Client-Bot
 pip install -r requirements.txt
 ```
 
----
-
-## Usage
+**2. Run**
 
 ```bash
 python main.py
 ```
 
-First run opens a QR code - scan it with TikTok and the session gets saved to `session/<username>.json`. After that, just run the same command and it picks up the session automatically. If it expires it'll ask for QR again.
+**3. Log in**
 
-### Import cookies from a file
+A QR code shows up in the terminal. Scan it with the TikTok app. The session is saved to `session/<username>.json`, so next time it starts straight away.
+
+Send `/ping` to the account from another one and it answers `pong`.
+
+<details>
+<summary><b>Other ways to log in</b></summary>
+
+<br>
+
+Import cookies from a JSON file (a browser-extension export or a plain `{"name": "value"}` object):
 
 ```bash
 python main.py cookies cookies.json
 ```
 
-Accepts a JSON array (exported from a browser extension) or a plain `{"name": "value"}` object.
-
-### Import cookies from your browser
+Or read them straight from your browser profile:
 
 ```bash
 python main.py browser chrome
 python main.py browser firefox
 ```
 
-Reads TikTok cookies directly from your local browser profile. No export needed.
+</details>
 
-### Console commands
+<details>
+<summary><b>Console commands</b></summary>
+
+<br>
 
 | Command | What it does |
 |---|---|
 | `retry` | Reconnect |
-| `stop` | Stop the bot, keep the session |
-| `close` | Logout from TikTok, delete session file and stop |
+| `stop` | Stop the bot and keep the session |
+| `close` | Log out of TikTok, delete the session file and stop |
 
----
+</details>
 
-## Built-in commands
+## Your first plugin
+
+Create any `.py` file in `plugins/`. ReLttk picks it up automatically and calls the hooks it defines:
+
+```python
+# plugins/echo.py
+async def on_message(bot, msg):
+    text = msg["text"].strip()
+    if text.startswith("/echo "):
+        await bot.send_message(text=text[6:], msg=msg)
+        await bot.send_reaction(emoji="👍", msg=msg)
+```
+
+| Hook | Called when |
+|---|---|
+| `on_start(bot)` | The bot has connected |
+| `on_message(bot, msg)` | A new message arrives |
+| `on_reaction(bot, rxn)` | A reaction is added or removed |
+| `on_delete(bot, deleted)` | A message is deleted |
+
+### Built-in commands
 
 | Command | Description |
 |---|---|
-| `/ping` | Replies "pong" and deletes after 3s |
-| `/info` | Shows sender's username and user ID |
+| `/ping` | Replies `pong` and deletes it after 3 s |
+| `/info` | Shows the sender's username and user ID |
 | `/react [emoji]` | Reacts to the message |
-| `/menu` | Shows available commands |
-| `/dl` | Download a quoted sticker (saves to `stickers/`) |
+| `/menu` | Lists the available commands |
+| `/dl` | Downloads the quoted sticker to `stickers/` |
 
----
+## How it works
 
-## Writing a plugin
-
-Drop a `.py` file in `plugins/` and it loads automatically.
-
-```python
-# plugins/hello.py
-
-async def on_message(bot, msg):
-    if msg["text"].strip() == "/hello":
-        await bot.send_message(text="hello!", msg=msg)
+```mermaid
+flowchart LR
+    WS["TikTok IM WebSocket"] -- "protobuf" --> C["client.py<br/>decode and dispatch"]
+    C --> P["plugins/*.py<br/>on_message · on_reaction · on_delete"]
+    P -- "send · react · download" --> A["core/api.py"]
+    A -- "signed requests<br/>X-Dynosaur + X-Gnarly" --> T["TikTok web API"]
 ```
 
-### Hooks
+`client.py` keeps the WebSocket alive, decodes the protobuf frames into plain dicts and stores them in the local cache. `core/api.py` builds the HTTP calls (send, react, history, downloads) and `core/signer_client.py` signs them with the pure-Python signers in `signers/`.
 
-| Hook | When |
-|---|---|
-| `on_start(bot)` | Bot connected |
-| `on_message(bot, msg)` | New message |
-| `on_reaction(bot, rxn)` | Reaction added or removed |
-| `on_delete(bot, deleted)` | Message deleted |
+## API reference
 
-### `msg` fields
+<details>
+<summary><b>Bot methods</b></summary>
 
-| Field | |
-|---|---|
-| `msg["text"]` | Message text |
-| `msg["sender_id"]` | Sender's user ID |
-| `msg["conv_id"]` | Conversation ID |
-| `msg["msg_id"]` | Message ID |
-| `msg["msg_type"]` | Internal type (for reactions/deletes) |
-| `msg["awe_type"]` | Content type (1=text, 800=video, 1813=voice...) |
-| `msg["is_group"]` | True if group chat |
-| `msg["video_id"]` | Video ID (awe_type 800/810) |
-| `msg["sticker_url"]` | Sticker URL (awe_type 1805) |
-| `msg["voice_id"]` | Voice note ID (awe_type 1813) |
-| `msg["quoted_text"]` | Quoted message text |
-| `msg["quoted_awe_type"]` | Quoted message content type |
-| `msg["proto"]` | Raw protobuf fields as dict |
-
-### Bot methods
+<br>
 
 ```python
-# send a text message
+# messages
 await bot.send_message(text="hello!", msg=msg)
+await bot.delete_message(msg=msg)
+await bot.send_video(msg["conv_id"], "7123456789")   # share a TikTok video
 
-# react to a message
+# reactions
 await bot.send_reaction(emoji="🔥", msg=msg)
-
-# remove a reaction
 await bot.remove_reaction(emoji="🔥", msg=msg)
 
-# delete a message
-await bot.delete_message(msg=msg)
+# users and content
+user = await bot.get_user(msg["sender_id"])           # user["unique_id"], user["nick_name"]
+detail = await bot.get_item("7123456789")             # video detail
+track = await bot.get_music("7123456789")             # music detail
 
-# share a video (conv_id from msg, item_id is the TikTok video ID)
-await bot.send_video(msg["conv_id"], "7123456789")
-
-# get a user's profile
-user = await bot.get_user(msg["sender_id"])
-print(user["unique_id"], user["nick_name"])
-
-# fetch conversation history (returns list of msg dicts)
+# conversations
+convs = await bot.get_conversations()
+groups = await bot.get_groups()
+privates = await bot.get_private_chats()
 msgs = await bot.fetch_history(msg["conv_id"], count=20)
 
-# get a cached message by ID
+# local cache
 cached = bot.get_message(msg["msg_id"])
-
-# get recent cached messages from a conversation
 recent = bot.get_messages(msg["conv_id"], limit=50)
 
-# download a sticker, video or voice note
+# downloads: stickers, videos and voice notes
 result = await bot.download(msg)
 if result:
     data, filename = result
 
-# list all conversations
-convs = await bot.get_conversations()
-
-# only groups
-groups = await bot.get_groups()
-
-# only private chats
-privates = await bot.get_private_chats()
-
-# get a TikTok video's detail
-detail = await bot.get_item("7123456789")
-
-# get a music track's detail
-track = await bot.get_music("7123456789")
-
-# inspect the raw protobuf fields of a received message
-import json
-print(json.dumps(msg["proto"], indent=2, default=str))
-
-# fetch raw history response bytes (useful for debugging the protobuf)
+# debugging the protobuf
 raw = await bot.fetch_history_raw(msg["conv_id"], count=20)
-
-# parse any protobuf blob to a dict
 parsed = bot._proto_to_dict(raw)
-print(json.dumps(parsed, indent=2, default=str))
 ```
 
----
+</details>
 
-## Message types (`awe_type`)
+<details>
+<summary><b><code>msg</code> fields</b></summary>
+
+<br>
+
+| Field | Description |
+|---|---|
+| `text` | Message text |
+| `sender_id` | Sender's user ID |
+| `conv_id` | Conversation ID |
+| `msg_id` | Message ID |
+| `msg_type` | Internal type (used for reactions and deletes) |
+| `awe_type` | Content type, see the table below |
+| `is_group` | `True` in group chats |
+| `video_id` | Video ID (`awe_type` 800 / 810) |
+| `sticker_url` | Sticker URL (`awe_type` 1805) |
+| `voice_id` | Voice note ID (`awe_type` 1813) |
+| `quoted_text` | Text of the quoted message |
+| `quoted_awe_type` | Content type of the quoted message |
+| `proto` | Raw protobuf fields as a dict |
+
+</details>
+
+<details>
+<summary><b>Message types (<code>awe_type</code>)</b></summary>
+
+<br>
 
 | Value | Type |
 |---|---|
@@ -273,22 +220,49 @@ print(json.dumps(parsed, indent=2, default=str))
 | `1814` | Greeting card |
 | `50001` | Group event |
 
----
+</details>
 
-## Multiple sessions
+<details>
+<summary><b>Project structure</b></summary>
 
-Each account has its own file in `session/`. The bot loads the first one it finds. To switch accounts just remove or rename the files.
+<br>
 
-Don't commit `session/` to git, it has your cookies.
+```
+ReLttk/
+├── main.py               entry point and console commands
+├── client.py             WebSocket client, dispatch, cache, history
+├── qrlogin.py            QR login with 2FA
+├── browsercookies.py     cookie import from local browsers
+├── config.py
+├── core/
+│   ├── api.py            HTTP endpoints (send, react, inbox, history…)
+│   ├── proto.py          protobuf encoding and decoding
+│   └── signer_client.py  request signing
+├── signers/              X-Dynosaur, X-Gnarly, X-Bogus in pure Python
+├── plugins/              ping, info, react, menu, videodl, stickerdl
+└── session/              saved sessions (one JSON per account)
+```
 
----
+</details>
+
+## Multiple accounts
+
+Each account gets its own file in `session/`. The bot loads the first one it finds, so to switch accounts move or rename the files.
+
+> [!CAUTION]
+> `session/` holds your login cookies. Never commit it or share it.
+
+## Disclaimer
+
+> [!WARNING]
+> ReLttk is an unofficial, reverse-engineered client. It is not affiliated with, endorsed by or connected to TikTok or ByteDance. Automating an account may go against TikTok's Terms of Service and can get it restricted. Use it at your own risk and on accounts you own.
 
 ## Contributing
 
-PRs, fixes and ideas are welcome. If you find something broken or want to add something, go for it.
+This started as a personal project and is still early, so expect rough edges. Bug reports, fixes and new plugins are very welcome: open an issue or a pull request.
 
----
+If ReLttk is useful to you, a star helps other people find it.
 
 ## License
 
-MIT
+[MIT](LICENSE)

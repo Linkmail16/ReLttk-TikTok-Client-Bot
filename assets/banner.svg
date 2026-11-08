@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="340" viewBox="0 0 1200 340" role="img" aria-label="ReLttk - TikTok DM bots in Python">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b0b0f"/>
+      <stop offset="1" stop-color="#16161d"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#25f4ee"/>
+      <stop offset="1" stop-color="#fe2c55"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="40"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="340" rx="24" fill="url(#bg)"/>
+  <circle cx="980" cy="60" r="120" fill="#fe2c55" opacity=".18" filter="url(#glow)"/>
+  <circle cx="1100" cy="300" r="110" fill="#25f4ee" opacity=".14" filter="url(#glow)"/>
+
+  <g font-family="'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif">
+    <text x="72" y="140" font-size="76" font-weight="800" fill="#ffffff">Re<tspan fill="url(#accent)">Lttk</tspan></text>
+    <text x="76" y="190" font-size="26" fill="#b8b8c4">TikTok DM bots in Python</text>
+    <text x="76" y="226" font-size="20" fill="#7d7d8c">Pure API · no browser · plugin based · hot reload</text>
+    <rect x="76" y="258" width="210" height="4" rx="2" fill="url(#accent)"/>
+  </g>
+
+  <!-- chat de ejemplo -->
+  <g font-family="'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="18">
+    <rect x="700" y="40" width="420" height="260" rx="20" fill="#1c1c24" stroke="#2a2a35"/>
+    <circle cx="732" cy="72" r="12" fill="#2a2a35"/>
+    <text x="754" y="78" font-size="16" font-weight="600" fill="#e6e6ee">group chat</text>
+    <line x1="700" y1="98" x2="1120" y2="98" stroke="#2a2a35"/>
+
+    <rect x="1014" y="112" width="82" height="34" rx="14" fill="#fe2c55"/>
+    <text x="1032" y="135" fill="#ffffff">/ping</text>
+
+    <rect x="724" y="156" width="80" height="34" rx="14" fill="#2a2a35"/>
+    <text x="744" y="179" fill="#e6e6ee">pong</text>
+
+    <rect x="1020" y="200" width="76" height="34" rx="14" fill="#fe2c55"/>
+    <text x="1037" y="223" fill="#ffffff">/info</text>
+
+    <rect x="724" y="244" width="246" height="34" rx="14" fill="#2a2a35"/>
+    <text x="744" y="267" fill="#e6e6ee">@you · id 7251063426…</text>
+  </g>
+</svg>
